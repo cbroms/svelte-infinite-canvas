@@ -1,15 +1,23 @@
 <script>
-  import InfiniteCanvas from "../src/InfiniteCanvas.svelte";
-  import CanvasElement from "../src/CanvasElement.svelte";
+  //   import InfiniteCanvas from "../src/CanvasInteractable.svelte";
+  //   import CanvasElement from "../src/CanvasElement.svelte";
+  //   import CanvasElementLink from "../src/CanvasElementLink.svelte";
+  import Canvas from "../src/Canvas.svelte";
+  import Unit from "./Unit.svelte";
+
+  const data = [
+    { id: "one", x: 12, y: 235, text: "this is something", links: ["two"] },
+    { id: "two", x: 400, y: 400, text: "this is something else", links: [] },
+    { id: "three", x: 400, y: 600, text: "anotha one", links: [] },
+    { id: "four", x: 200, y: 550, text: "and anotha", links: [] },
+  ];
 </script>
 
 <div class="layout">
   <div class="sidebar" />
   <div class="header" />
   <div class="area">
-    <InfiniteCanvas>
-      <CanvasElement>Hi there this is some stuff</CanvasElement>
-    </InfiniteCanvas>
+    <Canvas {data} {Unit} />
   </div>
 </div>
 
@@ -20,6 +28,12 @@
     display: grid;
     grid-template-columns: 200px 1fr;
     grid-template-rows: 50px 1fr;
+  }
+
+  .dragger {
+    background-color: pink;
+    padding: 10px;
+    border: 2px solid black;
   }
 
   .sidebar {
