@@ -4,12 +4,51 @@
   //   import CanvasElementLink from "../src/CanvasElementLink.svelte";
   import Canvas from "../src/Canvas.svelte";
   import Unit from "./Unit.svelte";
+  import Inner from "./Inner.svelte";
 
   let data = [
-    { id: "one", x: 12, y: 235, text: "this is something", links: ["two"] },
-    { id: "two", x: 400, y: 400, text: "this is something else", links: [] },
-    { id: "three", x: 400, y: 600, text: "anotha one", links: [] },
-    { id: "four", x: 200, y: 550, text: "and anotha", links: [] },
+    {
+      id: "one",
+      x: 20,
+      y: 150,
+      text:
+        "<h1>This is a zoomable and pannable canvas which holds movable and linkable elements.</h1>",
+      links: ["two", "four"],
+    },
+    {
+      id: "two",
+      x: 400,
+      y: 20,
+      text:
+        "These elements can link together. Form new links by clicking on the box to the right of this text and selecting an element to link to.",
+      links: [],
+    },
+    {
+      id: "three",
+      x: 700,
+      y: 200,
+      text:
+        "You can render <em>any</em> html you want, like <code>code</code> or <strong>big, bold text</strong> ",
+      links: [],
+    },
+    {
+      id: "four",
+      x: 470,
+      y: 300,
+      text: "It's very extensible",
+      links: ["three", "five"],
+    },
+    {
+      id: "five",
+      x: 700,
+      y: 370,
+      props: {
+        description:
+          "you can even render your own components and pass in props",
+        placeholder: "like this prop!",
+      },
+      links: [],
+    },
   ];
 
   const handleLinkStart = (e) => {
@@ -47,7 +86,8 @@
   <div class="area">
     <Canvas
       {data}
-      {Unit}
+      OuterComponent={Unit}
+      InnerComponent={Inner}
       on:linkstart={handleLinkStart}
       on:linkend={handleLinkEnd}
       on:dragstart={handleDragStart}
@@ -63,12 +103,6 @@
     display: grid;
     grid-template-columns: 200px 1fr;
     grid-template-rows: 50px 1fr;
-  }
-
-  .dragger {
-    background-color: pink;
-    padding: 10px;
-    border: 2px solid black;
   }
 
   .sidebar {

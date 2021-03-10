@@ -9,8 +9,10 @@
   export let x = 0;
   export let y = 0;
   export let id;
-  export let text = "";
-  export let Unit;
+  export let text = null;
+  export let props = null;
+  export let OuterComponent;
+  export let InnerComponent;
 
   let oldX, oldY, thisX, thisY;
 
@@ -59,6 +61,7 @@
   };
 
   const linkStart = (e) => {
+    e.preventDefault();
     linking.set({ start: id });
     linking.set({
       start: id,
@@ -85,21 +88,27 @@
   style="top: {($dragging.id === id && $dragging.y) ||
     y}px; left: {($dragging.id === id && $dragging.x) || x}px;"
 >
-  <Unit>
+  <OuterComponent>
     <div
       slot="grippable"
       class="slot-filler-elt grabber"
       class:grabbed={$dragging.id === id}
       on:mousedown={dragStart}
     />
-    <div slot="text">{text}</div>
+    <div slot="text">
+      {#if text}
+        {@html text}
+      {:else if props}
+        <InnerComponent {...props} />
+      {/if}
+    </div>
     <div
       bind:this={linkStarterElt}
       slot="linkStarter"
       class="slot-filler-elt starter"
       on:mousedown={linkStart}
     />
-  </Unit>
+  </OuterComponent>
 </div>
 
 <style>

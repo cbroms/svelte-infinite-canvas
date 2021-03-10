@@ -10,8 +10,10 @@
 
   const dispatch = createEventDispatcher();
 
+  export let showControls;
   export let data;
-  export let Unit;
+  export let OuterComponent;
+  export let InnerComponent;
 
   $: {
     if ($linking.end) {
@@ -42,7 +44,12 @@
 
 <CanvasInteractable>
   {#each data as element}
-    <CanvasElement {Unit} {...element} />
+    <CanvasElement
+      {OuterComponent}
+      {InnerComponent}
+      {...element}
+      {showControls}
+    />
     {#each element.links as link}
       <CanvasElementLink from={element.id} to={link} />
     {/each}

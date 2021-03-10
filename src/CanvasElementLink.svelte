@@ -10,6 +10,13 @@
 
   export let from = null;
   export let to = null;
+  export const options = {
+    startSocket: "right",
+    endSocket: "left",
+    endPlug: "square",
+    color: "black",
+    size: 2,
+  };
 
   let line = null;
 
@@ -25,11 +32,7 @@
       if ($linkedElements[from] && $linkedElements[to]) {
         setTimeout(() => {
           line = new LeaderLine($linkedElements[from], $linkedElements[to]);
-          line.setOptions({
-            startSocket: "right",
-            endSocket: "left",
-            endPlug: "arrow3",
-          });
+          line.setOptions(options);
         }, 200);
       }
     }

@@ -25,6 +25,8 @@
   };
 
   const linkUp = (e) => {
+    let linked = false;
+
     for (const elt in $linkedElements) {
       // did we drop over an element?
       if (
@@ -41,8 +43,16 @@
           linking.update((s) => {
             return { ...s, end: elt };
           });
+          linked = true;
+        } else {
+          linked = true;
         }
       }
+    }
+
+    if (!linked) {
+      linking.set({});
+      document.onmousemove = null;
     }
   };
 
@@ -72,9 +82,6 @@
 <style>
   .mouse-position {
     pointer-events: none;
-    height: 10px;
-    width: 10px;
-    background-color: red;
     position: absolute;
   }
 </style>

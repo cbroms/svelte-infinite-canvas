@@ -4,6 +4,7 @@
   import { position } from "./stores/position";
   import panzoom from "panzoom";
 
+  export let showControls = false;
   export let panzoomOptions = {
     maxZoom: 5,
     minZoom: 0.2,
@@ -35,12 +36,35 @@
   });
 </script>
 
-<div bind:this={canvasElt}>
-  <slot />
+<div class="canvas-container">
+  <div bind:this={canvasElt}>
+    <slot />
+  </div>
+  {#if showControls}
+    <div class="canvas-controls">
+      <button>+ Zoom in</button>
+      <button>- Zoom out</button>
+    </div>
+  {/if}
 </div>
 
 <style>
   div {
     height: 100%;
+  }
+
+  .canvas-controls {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    height: auto;
+  }
+
+  .canvas-container {
+    position: relative;
+  }
+
+  button {
+    margin: 10px;
   }
 </style>
