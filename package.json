@@ -11,6 +11,7 @@
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^17.1.0",
+    "@rollup/plugin-legacy": "^2.1.0",
     "@rollup/plugin-node-resolve": "^9.0.0",
     "leader-line": "^1.0.5",
     "panzoom": "^9.4.1",

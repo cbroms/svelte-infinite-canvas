@@ -1,22 +1,54 @@
 <script>
   import CanvasElementLink from "./CanvasElementLink.svelte";
   import CanvasInteractable from "./CanvasInteractable.svelte";
+  import MousePositionElement from "./MousePositionElement.svelte";
   import CanvasElement from "./CanvasElement.svelte";
+  import { createEventDispatcher } from "svelte";
+
+  import { linking } from "./stores/linking";
+  import { dragging } from "./stores/dragging";
+
+  const dispatch = createEventDispatcher();
 
   export let data;
   export let Unit;
+
+  $: {
+    if ($linking.end) {
+      dispatch("linkend", { from: $linking.start, to: $linking.end });
+      linking.set({});
+    } else if (
+      $linking.start &&
+      $linking.x === undefined &&
+      $linking.y === undefined
+    ) {
+      dispatch("linkstart", { from: $linking.start });
+    }
+  }
+
+  $: {
+    if ($dragging.dropped) {
+      dispatch("dragend", { id: $dragging.id, x: $dragging.x, y: $dragging.y });
+      dragging.set({});
+    } else if (
+      $dragging.id &&
+      $dragging.x === undefined &&
+      $dragging.y === undefined
+    ) {
+      dispatch("dragstart", { id: $dragging.id });
+    }
+  }
 </script>
 
 <CanvasInteractable>
   {#each data as element}
-    <CanvasElement id={element.id} x={element.x} y={element.y}>
-      <Unit>
-        <div slot="text">{element.text}</div>
-        <div slot="linkStarter" />
-      </Unit>
-    </CanvasElement>
+    <CanvasElement {Unit} {...element} />
     {#each element.links as link}
       <CanvasElementLink from={element.id} to={link} />
     {/each}
   {/each}
+  {#if $linking.start}
+    <MousePositionElement />
+    <CanvasElementLink from={$linking.start} to="mouse-position" />
+  {/if}
 </CanvasInteractable>
