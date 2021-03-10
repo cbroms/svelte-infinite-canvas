@@ -88,7 +88,7 @@
   style="top: {($dragging.id === id && $dragging.y) ||
     y}px; left: {($dragging.id === id && $dragging.x) || x}px;"
 >
-  <OuterComponent>
+  <svelte:component this={OuterComponent}>
     <div
       slot="grippable"
       class="slot-filler-elt grabber"
@@ -99,7 +99,7 @@
       {#if text}
         {@html text}
       {:else if props}
-        <InnerComponent {...props} />
+        <svelte:component this={InnerComponent} {...props} />
       {/if}
     </div>
     <div
@@ -108,7 +108,7 @@
       class="slot-filler-elt starter"
       on:mousedown={linkStart}
     />
-  </OuterComponent>
+  </svelte:component>
 </div>
 
 <style>

@@ -42,7 +42,9 @@ export default {
     file: "demo/public/build/bundle.js",
   },
   plugins: [
-    legacy({ "node_modules/leader-line/leader-line.min.js": "LeaderLine" }),
+    legacy({
+      "node_modules/leader-line/leader-line.min.js": "LeaderLine",
+    }),
     svelte({
       compilerOptions: {
         // enable run-time checks when not in production

@@ -1,6 +1,7 @@
 import svelte from "rollup-plugin-svelte";
 import resolve from "@rollup/plugin-node-resolve";
 import legacy from "@rollup/plugin-legacy";
+import css from "rollup-plugin-css-only";
 import pkg from "./package.json";
 
 const name = pkg.name
@@ -15,8 +16,12 @@ export default {
     { file: pkg.main, format: "umd", name },
   ],
   plugins: [
-    legacy({ "node_modules/leader-line/leader-line.min.js": "LeaderLine" }),
+    legacy({
+      "node_modules/leader-line/leader-line.min.js": "LeaderLine",
+      "node_modules/panzoom/index.js": "panzoom",
+    }),
     svelte(),
     resolve(),
+    css({ output: "bundle.css" }),
   ],
 };

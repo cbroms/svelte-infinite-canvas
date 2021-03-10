@@ -1,1 +1,1 @@
-export { default as default } from "./InfiniteCanvas.svelte";
+export { default as default } from "./Canvas.svelte";

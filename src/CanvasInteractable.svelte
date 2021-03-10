@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy, afterUpdate } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { zoom } from "./stores/zoom";
   import { position } from "./stores/position";
   import panzoom from "panzoom";

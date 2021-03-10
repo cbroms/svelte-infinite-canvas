@@ -3009,7 +3009,7 @@ var app = (function () {
     			attr_dev(div, "slot", "grippable");
     			attr_dev(div, "class", "slot-filler-elt grabber svelte-k2j4yl");
     			toggle_class(div, "grabbed", /*$dragging*/ ctx[9].id === /*id*/ ctx[2]);
-    			add_location(div, file$3, 91, 4, 2029);
+    			add_location(div, file$3, 91, 4, 2053);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -3044,46 +3044,83 @@ var app = (function () {
 
     // (101:22) 
     function create_if_block_1(ctx) {
-    	let innercomponent;
+    	let switch_instance;
+    	let switch_instance_anchor;
     	let current;
-    	const innercomponent_spread_levels = [/*props*/ ctx[4]];
-    	let innercomponent_props = {};
+    	const switch_instance_spread_levels = [/*props*/ ctx[4]];
+    	var switch_value = /*InnerComponent*/ ctx[6];
 
-    	for (let i = 0; i < innercomponent_spread_levels.length; i += 1) {
-    		innercomponent_props = assign(innercomponent_props, innercomponent_spread_levels[i]);
+    	function switch_props(ctx) {
+    		let switch_instance_props = {};
+
+    		for (let i = 0; i < switch_instance_spread_levels.length; i += 1) {
+    			switch_instance_props = assign(switch_instance_props, switch_instance_spread_levels[i]);
+    		}
+
+    		return {
+    			props: switch_instance_props,
+    			$$inline: true
+    		};
     	}
 
-    	innercomponent = new /*InnerComponent*/ ctx[6]({
-    			props: innercomponent_props,
-    			$$inline: true
-    		});
+    	if (switch_value) {
+    		switch_instance = new switch_value(switch_props());
+    	}
 
     	const block = {
     		c: function create() {
-    			create_component(innercomponent.$$.fragment);
+    			if (switch_instance) create_component(switch_instance.$$.fragment);
+    			switch_instance_anchor = empty();
     		},
     		m: function mount(target, anchor) {
-    			mount_component(innercomponent, target, anchor);
+    			if (switch_instance) {
+    				mount_component(switch_instance, target, anchor);
+    			}
+
+    			insert_dev(target, switch_instance_anchor, anchor);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
-    			const innercomponent_changes = (dirty & /*props*/ 16)
-    			? get_spread_update(innercomponent_spread_levels, [get_spread_object(/*props*/ ctx[4])])
+    			const switch_instance_changes = (dirty & /*props*/ 16)
+    			? get_spread_update(switch_instance_spread_levels, [get_spread_object(/*props*/ ctx[4])])
     			: {};
 
-    			innercomponent.$set(innercomponent_changes);
+    			if (switch_value !== (switch_value = /*InnerComponent*/ ctx[6])) {
+    				if (switch_instance) {
+    					group_outros();
+    					const old_component = switch_instance;
+
+    					transition_out(old_component.$$.fragment, 1, 0, () => {
+    						destroy_component(old_component, 1);
+    					});
+
+    					check_outros();
+    				}
+
+    				if (switch_value) {
+    					switch_instance = new switch_value(switch_props());
+    					create_component(switch_instance.$$.fragment);
+    					transition_in(switch_instance.$$.fragment, 1);
+    					mount_component(switch_instance, switch_instance_anchor.parentNode, switch_instance_anchor);
+    				} else {
+    					switch_instance = null;
+    				}
+    			} else if (switch_value) {
+    				switch_instance.$set(switch_instance_changes);
+    			}
     		},
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(innercomponent.$$.fragment, local);
+    			if (switch_instance) transition_in(switch_instance.$$.fragment, local);
     			current = true;
     		},
     		o: function outro(local) {
-    			transition_out(innercomponent.$$.fragment, local);
+    			if (switch_instance) transition_out(switch_instance.$$.fragment, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			destroy_component(innercomponent, detaching);
+    			if (detaching) detach_dev(switch_instance_anchor);
+    			if (switch_instance) destroy_component(switch_instance, detaching);
     		}
     	};
 
@@ -3158,7 +3195,7 @@ var app = (function () {
     			div = element("div");
     			if (if_block) if_block.c();
     			attr_dev(div, "slot", "text");
-    			add_location(div, file$3, 97, 4, 2179);
+    			add_location(div, file$3, 97, 4, 2203);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -3245,7 +3282,7 @@ var app = (function () {
     			div = element("div");
     			attr_dev(div, "slot", "linkStarter");
     			attr_dev(div, "class", "slot-filler-elt starter svelte-k2j4yl");
-    			add_location(div, file$3, 104, 4, 2323);
+    			add_location(div, file$3, 104, 4, 2371);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -3278,12 +3315,14 @@ var app = (function () {
 
     function create_fragment$4(ctx) {
     	let div;
-    	let outercomponent;
+    	let switch_instance;
     	let current;
     	let mounted;
     	let dispose;
+    	var switch_value = /*OuterComponent*/ ctx[5];
 
-    	outercomponent = new /*OuterComponent*/ ctx[5]({
+    	function switch_props(ctx) {
+    		return {
     			props: {
     				$$slots: {
     					linkStarter: [create_linkStarter_slot],
@@ -3293,12 +3332,17 @@ var app = (function () {
     				$$scope: { ctx }
     			},
     			$$inline: true
-    		});
+    		};
+    	}
+
+    	if (switch_value) {
+    		switch_instance = new switch_value(switch_props(ctx));
+    	}
 
     	const block = {
     		c: function create() {
     			div = element("div");
-    			create_component(outercomponent.$$.fragment);
+    			if (switch_instance) create_component(switch_instance.$$.fragment);
     			attr_dev(div, "class", "canvas-element svelte-k2j4yl");
     			set_style(div, "top", (/*$dragging*/ ctx[9].id === /*id*/ ctx[2] && /*$dragging*/ ctx[9].y || /*y*/ ctx[1]) + "px");
     			set_style(div, "left", (/*$dragging*/ ctx[9].id === /*id*/ ctx[2] && /*$dragging*/ ctx[9].x || /*x*/ ctx[0]) + "px");
@@ -3309,7 +3353,11 @@ var app = (function () {
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
-    			mount_component(outercomponent, div, null);
+
+    			if (switch_instance) {
+    				mount_component(switch_instance, div, null);
+    			}
+
     			/*div_binding_1*/ ctx[14](div);
     			current = true;
 
@@ -3319,13 +3367,35 @@ var app = (function () {
     			}
     		},
     		p: function update(ctx, [dirty]) {
-    			const outercomponent_changes = {};
+    			const switch_instance_changes = {};
 
-    			if (dirty & /*$$scope, linkStarterElt, text, props, $dragging, id*/ 8389404) {
-    				outercomponent_changes.$$scope = { dirty, ctx };
+    			if (dirty & /*$$scope, linkStarterElt, text, InnerComponent, props, $dragging, id*/ 8389468) {
+    				switch_instance_changes.$$scope = { dirty, ctx };
     			}
 
-    			outercomponent.$set(outercomponent_changes);
+    			if (switch_value !== (switch_value = /*OuterComponent*/ ctx[5])) {
+    				if (switch_instance) {
+    					group_outros();
+    					const old_component = switch_instance;
+
+    					transition_out(old_component.$$.fragment, 1, 0, () => {
+    						destroy_component(old_component, 1);
+    					});
+
+    					check_outros();
+    				}
+
+    				if (switch_value) {
+    					switch_instance = new switch_value(switch_props(ctx));
+    					create_component(switch_instance.$$.fragment);
+    					transition_in(switch_instance.$$.fragment, 1);
+    					mount_component(switch_instance, div, null);
+    				} else {
+    					switch_instance = null;
+    				}
+    			} else if (switch_value) {
+    				switch_instance.$set(switch_instance_changes);
+    			}
 
     			if (!current || dirty & /*$dragging, id, y*/ 518) {
     				set_style(div, "top", (/*$dragging*/ ctx[9].id === /*id*/ ctx[2] && /*$dragging*/ ctx[9].y || /*y*/ ctx[1]) + "px");
@@ -3337,16 +3407,16 @@ var app = (function () {
     		},
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(outercomponent.$$.fragment, local);
+    			if (switch_instance) transition_in(switch_instance.$$.fragment, local);
     			current = true;
     		},
     		o: function outro(local) {
-    			transition_out(outercomponent.$$.fragment, local);
+    			if (switch_instance) transition_out(switch_instance.$$.fragment, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div);
-    			destroy_component(outercomponent);
+    			if (switch_instance) destroy_component(switch_instance);
     			/*div_binding_1*/ ctx[14](null);
     			mounted = false;
     			dispose();
