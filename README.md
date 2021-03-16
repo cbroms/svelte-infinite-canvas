@@ -1,35 +1,31 @@
-*Psst — looking for an app template? Go here --> [sveltejs/template](https://github.com/sveltejs/template)*
+# Svelte Infinite Canvas
 
----
+A pannable and zoomable canvas that holds movable elements.
 
-# component-template
+## Install it
 
-A base for building shareable Svelte components. Clone it with [degit](https://github.com/Rich-Harris/degit):
-
-```bash
-npx degit sveltejs/component-template my-new-component
-cd my-new-component
-npm install # or yarn
+```
+npm install --save-dev svelte-infinite-canvas
 ```
 
-Your component's source code lives in `src/Component.svelte`.
+This component currently uses [`leader-line`](https://github.com/anseki/leader-line) to draw links between elements on the canvas. Since `leader-line` is a legacy package, you'll need to add `@rollup/plugin-legacy` to your rollup configuration. Install it:
 
-You can create a package that exports multiple components by adding them to the `src` directory and editing `src/index.js` to reexport them as named exports.
+```
+npm install --save-dev @rollup/plugin-legacy
+```
 
-TODO
+Than, in your `rollup.config.js` add:
 
-* [ ] some firm opinions about the best way to test components
-* [ ] update `degit` so that it automates some of the setup work
+```js
+import legacy from "@rollup/plugin-legacy";
 
+// config stuff here
 
-## Setting up
-
-* Run `npm init` (or `yarn init`)
-* Replace this README with your own
-
-
-## Consuming components
-
-Your package.json has a `"svelte"` field pointing to `src/index.js`, which allows Svelte apps to import the source code directly, if they are using a bundler plugin like [rollup-plugin-svelte](https://github.com/sveltejs/rollup-plugin-svelte) or [svelte-loader](https://github.com/sveltejs/svelte-loader) (where [`resolve.mainFields`](https://webpack.js.org/configuration/resolve/#resolve-mainfields) in your webpack config includes `"svelte"`). **This is recommended.**
-
-For everyone else, `npm run build` will bundle your component's source code into a plain JavaScript module (`dist/index.mjs`) and a UMD script (`dist/index.js`). This will happen automatically when you publish your component to npm, courtesy of the `prepublishOnly` hook in package.json.
+export default {
+    plugins: [
+        legacy({
+            "node_modules/leader-line/leader-line.min.js": "LeaderLine",
+        }),
+    ],
+};
+```
