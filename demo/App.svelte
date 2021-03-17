@@ -92,6 +92,8 @@
       on:linkend={handleLinkEnd}
       on:dragstart={handleDragStart}
       on:dragend={handleDragEnd}
+      x={2000}
+      y={2000}
     />
   </div>
 </div>

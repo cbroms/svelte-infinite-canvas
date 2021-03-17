@@ -14,6 +14,8 @@
   export let data;
   export let OuterComponent;
   export let InnerComponent;
+  export let x;
+  export let y;
 
   $: {
     if ($linking.end) {
@@ -42,7 +44,7 @@
   }
 </script>
 
-<CanvasInteractable>
+<CanvasInteractable {x} {y}>
   {#each data as element}
     <CanvasElement
       {OuterComponent}
@@ -59,3 +61,9 @@
     <CanvasElementLink from={$linking.start} to="mouse-position" />
   {/if}
 </CanvasInteractable>
+
+<style>
+  :global(.leader-line) {
+    z-index: -1;
+  }
+</style>

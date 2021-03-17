@@ -55,7 +55,6 @@
     oldY = e.clientY;
 
     document.onmousemove = dragDuring;
-
     document.onmouseup = dragEnd;
     dragging.set({ id });
   };

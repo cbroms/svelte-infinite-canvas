@@ -33,6 +33,7 @@
         setTimeout(() => {
           line = new LeaderLine($linkedElements[from], $linkedElements[to]);
           line.setOptions(options);
+          // move all the lines to the canvas element
         }, 200);
       }
     }
