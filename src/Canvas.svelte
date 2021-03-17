@@ -61,9 +61,3 @@
     <CanvasElementLink from={$linking.start} to="mouse-position" />
   {/if}
 </CanvasInteractable>
-
-<style>
-  :global(.leader-line) {
-    z-index: -1;
-  }
-</style>

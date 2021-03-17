@@ -31,7 +31,6 @@
         "dist"
     ],
     "dependencies": {
-        "leader-line": "^1.0.5",
         "panzoom": "^9.4.1"
     }
 }

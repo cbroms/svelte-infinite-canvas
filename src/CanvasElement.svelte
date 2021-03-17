@@ -21,15 +21,13 @@
 
   onMount(() => {
     linkedElements.update((elts) => {
-      return { ...elts, [id]: element };
+      return { ...elts, [id]: { element, x, y } };
     });
   });
 
   const dragEnd = (e) => {
     document.onmouseup = null;
     document.onmousemove = null;
-    x = $dragging.x;
-    y = $dragging.y;
     dragging.update((s) => {
       return { ...s, dropped: true };
     });
@@ -42,10 +40,16 @@
     oldX = e.clientX;
     oldY = e.clientY;
 
+    y = element.offsetTop - thisY * (1 / $zoom);
+    x = element.offsetLeft - thisX * (1 / $zoom);
+
     dragging.set({
-      y: element.offsetTop - thisY * (1 / $zoom),
-      x: element.offsetLeft - thisX * (1 / $zoom),
+      y,
+      x,
       id,
+    });
+    linkedElements.update((elts) => {
+      return { ...elts, [id]: { element, x, y } };
     });
   };
 
@@ -84,8 +88,7 @@
   on:click={linkEnd}
   bind:this={element}
   class="canvas-element"
-  style="top: {($dragging.id === id && $dragging.y) ||
-    y}px; left: {($dragging.id === id && $dragging.x) || x}px;"
+  style="top: {y}px; left: {x}px;"
 >
   <svelte:component this={OuterComponent}>
     <div

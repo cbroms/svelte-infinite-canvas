@@ -12,7 +12,7 @@
       x: 20,
       y: 150,
       text:
-        "<h1>This is a zoomable and pannable canvas which holds movable and linkable elements.</h1>",
+        "<h1>(1) This is a zoomable and pannable canvas which holds movable and linkable elements.</h1>",
       links: ["two", "four"],
     },
     {
@@ -20,7 +20,7 @@
       x: 400,
       y: 20,
       text:
-        "These elements can link together. Form new links by clicking on the box to the right of this text and selecting an element to link to.",
+        "(2) These elements can link together. Form new links by clicking on the box to the right of this text and selecting an element to link to.",
       links: [],
     },
     {
@@ -28,14 +28,14 @@
       x: 700,
       y: 200,
       text:
-        "You can render <em>any</em> html you want, like <code>code</code> or <strong>big, bold text</strong> ",
+        "(3) You can render <em>any</em> html you want, like <code>code</code> or <strong>big, bold text</strong> ",
       links: [],
     },
     {
       id: "four",
       x: 470,
       y: 300,
-      text: "It's very extensible",
+      text: "(4) It's very extensible",
       links: ["three", "five"],
     },
     {
@@ -44,7 +44,7 @@
       y: 370,
       props: {
         description:
-          "you can even render your own components and pass in props",
+          "(5) you can even render your own components and pass in props",
         placeholder: "like this prop!",
       },
       links: [],
@@ -110,16 +110,17 @@
   .sidebar {
     grid-column: 1 / 2;
     grid-row: 1 / 3;
-    background-color: indianred;
+    background-color: white;
   }
 
   .header {
     grid-column: 2 / 3;
     grid-row: 1 / 2;
-    background-color: black;
+    background-color: white;
   }
 
   .area {
+    border: 1px solid black;
     overflow: hidden;
     grid-column: 2 / 3;
     grid-row: 2 / 3;

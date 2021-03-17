@@ -17,7 +17,6 @@ export default {
   ],
   plugins: [
     legacy({
-      "node_modules/leader-line/leader-line.min.js": "LeaderLine",
       "node_modules/panzoom/index.js": "panzoom",
     }),
     svelte(),
