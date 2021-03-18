@@ -47,12 +47,15 @@
       const toPos = $linkedElements[to].element.getBoundingClientRect();
 
       // adjust the start and end positions to take into account the size of the element and zoom level
-      const adjustedFromX =
-        $linkedElements[from].x + fromPos.width * (1 / $zoom);
-      const adjustedFromY =
-        $linkedElements[from].y + (fromPos.height * (1 / $zoom)) / 2;
-      const adjustedToY =
-        $linkedElements[to].y + (toPos.height * (1 / $zoom)) / 2;
+      const adjustedFromX = Math.round(
+        $linkedElements[from].x + fromPos.width * (1 / $zoom)
+      );
+      const adjustedFromY = Math.round(
+        $linkedElements[from].y + (fromPos.height * (1 / $zoom)) / 2
+      );
+      const adjustedToY = Math.round(
+        $linkedElements[to].y + (toPos.height * (1 / $zoom)) / 2
+      );
 
       height = Math.abs(adjustedToY - adjustedFromY);
       width = Math.abs($linkedElements[to].x - adjustedFromX);
@@ -86,18 +89,19 @@
   <svelte:component this={LineComponent}>
     <div slot="line" let:hoverStroke let:stroke let:color let:hoverColor>
       <svg
-        viewBox="0 0 {width} {height + stroke * 2}"
+        viewBox="0 0 {width} {height + stroke * 2 + 4}"
         xmlns="http://www.w3.org/2000/svg"
         style="height: {height +
-          stroke * 2}px; width: {width}px; left: {x}px; top: {y}px;"
+          stroke * 2 +
+          4}px; width: {width}px; left: {x}px; top: {y}px;"
       >
         <!-- <defs>
           <marker
-            id="head"
+            id="{from}-{to}"
             orient="auto"
             markerWidth="2"
             markerHeight="4"
-            refX="2"
+            refX="1.5"
             refY="2"
           >
             <path d="M0,0 V4 L2,2 Z" fill={hovering ? hoverColor : color} />
@@ -105,7 +109,7 @@
         </defs> -->
 
         <line
-          marker-end="url(#head)"
+          marker-end="url(#{from}-{to})"
           x1={lineX1}
           y1={lineY1}
           x2={lineX2}

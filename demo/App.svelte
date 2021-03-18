@@ -64,7 +64,7 @@
     console.log("link end");
     data = data.map((elt) => {
       if (elt.id === e.detail.from) {
-        elt.links.push(e.detail.to);
+        elt.links.push({ id: e.detail.to });
       }
       return elt;
     });

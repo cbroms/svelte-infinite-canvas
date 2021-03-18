@@ -67,6 +67,10 @@
   {/each}
   {#if $linking.start}
     <MousePositionElement />
-    <CanvasElementLink from={$linking.start} to="mouse-position" />
+    <CanvasElementLink
+      from={$linking.start}
+      to="mouse-position"
+      {LineComponent}
+    />
   {/if}
 </CanvasInteractable>

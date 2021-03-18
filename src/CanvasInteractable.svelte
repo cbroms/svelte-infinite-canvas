@@ -27,9 +27,9 @@
     panzoomInstance = panzoom(canvasElt, panzoomOptions);
     // panzoomInstance.moveTo(centerX, centerY);
 
-    linkedElements.update((elts) => {
-      return { ...elts, canvas: canvasElt };
-    });
+    // linkedElements.update((elts) => {
+    //   return { ...elts, canvas: canvasElt };
+    // });
 
     panzoomInstance.on("transform", (e) => {
       // keep track of the element's scale so we can adjust dragging to match

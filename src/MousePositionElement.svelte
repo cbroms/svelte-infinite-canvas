@@ -15,12 +15,19 @@
     oldX = e.clientX;
     oldY = e.clientY;
 
+    const x = element.offsetLeft - thisX * (1 / $zoom);
+    const y = element.offsetTop - thisY * (1 / $zoom);
+
     linking.update((s) => {
       return {
         ...s,
-        y: element.offsetTop - thisY * (1 / $zoom),
-        x: element.offsetLeft - thisX * (1 / $zoom),
+        y,
+        x,
       };
+    });
+
+    linkedElements.update((elts) => {
+      return { ...elts, "mouse-position": { element, x, y } };
     });
   };
 
@@ -28,14 +35,17 @@
     let linked = false;
 
     for (const elt in $linkedElements) {
+      console.log(elt);
       // did we drop over an element?
       if (
-        $linking.x > $linkedElements[elt].offsetLeft &&
+        $linking.x > $linkedElements[elt].element.offsetLeft &&
         $linking.x <
-          $linkedElements[elt].offsetLeft + $linkedElements[elt].offsetWidth &&
-        $linking.y > $linkedElements[elt].offsetTop &&
+          $linkedElements[elt].element.offsetLeft +
+            $linkedElements[elt].element.offsetWidth &&
+        $linking.y > $linkedElements[elt].element.offsetTop &&
         $linking.y <
-          $linkedElements[elt].offsetTop + $linkedElements[elt].offsetHeight
+          $linkedElements[elt].element.offsetTop +
+            $linkedElements[elt].element.offsetHeight
       ) {
         if (elt !== $linking.start) {
           document.onmousemove = null;
@@ -57,9 +67,6 @@
   };
 
   onMount(() => {
-    linkedElements.update((elts) => {
-      return { ...elts, "mouse-position": element };
-    });
     document.onmousemove = linkDuring;
     document.onmouseup = linkUp;
   });
