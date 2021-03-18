@@ -7,13 +7,9 @@
 
   export let from = null;
   export let to = null;
-  export const options = {
-    startSocket: "right",
-    endSocket: "left",
-    endPlug: "square",
-    color: "black",
-    size: 2,
-  };
+  export let LineComponent;
+  export let LineAnnotationComponent;
+  export let lineProps = {};
 
   let height = 0;
   let width = 0;
@@ -24,6 +20,18 @@
   let lineX2 = 0;
   let lineY1 = 0;
   let lineY2 = 0;
+
+  let hovering = false;
+
+  const handleLineClick = () => {};
+
+  const handleLineHover = () => {
+    hovering = true;
+  };
+
+  const handleLineLeave = () => {
+    hovering = false;
+  };
 
   $: {
     // recalculate when linked elements updates, or one of the ends is being dragged
@@ -37,7 +45,6 @@
       // TODO: this doesn't work when the elements  render off screen, since everything is relative to the viewport
       const fromPos = $linkedElements[from].element.getBoundingClientRect();
       const toPos = $linkedElements[to].element.getBoundingClientRect();
-      console.log(fromPos.width, toPos.width);
 
       // adjust the start and end positions to take into account the size of the element and zoom level
       const adjustedFromX =
@@ -76,19 +83,67 @@
 </script>
 
 {#if $linkedElements[to] && $linkedElements[from]}
-  <svg
-    class="{from} to {to}"
-    viewBox="0 0 {width} {height}"
-    xmlns="http://www.w3.org/2000/svg"
-    style="height: {height}px; width: {width}px; left: {x}px; top: {y}px;"
-  >
-    <line x1={lineX1} y1={lineY1} x2={lineX2} y2={lineY2} stroke="black" />
-  </svg>
+  <svelte:component this={LineComponent}>
+    <div slot="line" let:hoverStroke let:stroke let:color let:hoverColor>
+      <svg
+        viewBox="0 0 {width} {height + stroke * 2}"
+        xmlns="http://www.w3.org/2000/svg"
+        style="height: {height +
+          stroke * 2}px; width: {width}px; left: {x}px; top: {y}px;"
+      >
+        <!-- <defs>
+          <marker
+            id="head"
+            orient="auto"
+            markerWidth="2"
+            markerHeight="4"
+            refX="2"
+            refY="2"
+          >
+            <path d="M0,0 V4 L2,2 Z" fill={hovering ? hoverColor : color} />
+          </marker>
+        </defs> -->
+
+        <line
+          marker-end="url(#head)"
+          x1={lineX1}
+          y1={lineY1}
+          x2={lineX2}
+          y2={lineY2 + stroke}
+          stroke={hovering ? hoverColor : color}
+          stroke-width={hovering ? hoverStroke : stroke}
+          on:click={handleLineClick}
+          on:mouseover={handleLineHover}
+          on:mouseout={handleLineLeave}
+        />
+      </svg>
+    </div>
+  </svelte:component>
+
+  {#if hovering}
+    <div
+      class="line-annotation"
+      style="left: {x + width / 2}px; top: {y + height / 2}px;"
+    >
+      <svelte:component this={LineAnnotationComponent} {...lineProps} />
+    </div>
+  {/if}
 {/if}
 
 <style>
   svg {
     pointer-events: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+
+  line {
+    pointer-events: all !important;
+    cursor: pointer;
+  }
+
+  .line-annotation {
     position: absolute;
     top: 0;
     left: 0;

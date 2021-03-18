@@ -5,6 +5,8 @@
   import Canvas from "../src/Canvas.svelte";
   import Unit from "./Unit.svelte";
   import Inner from "./Inner.svelte";
+  import Line from "./Line.svelte";
+  import LineAnnotation from "./LineAnnotation.svelte";
 
   let data = [
     {
@@ -13,7 +15,10 @@
       y: 150,
       text:
         "<h1>(1) This is a zoomable and pannable canvas which holds movable and linkable elements.</h1>",
-      links: ["two", "four"],
+      links: [
+        { id: "two", props: { text: "testing 123" } },
+        { id: "four", props: { text: "one to four, baby" } },
+      ],
     },
     {
       id: "two",
@@ -36,7 +41,7 @@
       x: 470,
       y: 300,
       text: "(4) It's very extensible",
-      links: ["three", "five"],
+      links: [{ id: "three", props: { text: "four to  three" } }],
     },
     {
       id: "five",
@@ -88,6 +93,8 @@
       {data}
       OuterComponent={Unit}
       InnerComponent={Inner}
+      LineComponent={Line}
+      LineAnnotationComponent={LineAnnotation}
       on:linkstart={handleLinkStart}
       on:linkend={handleLinkEnd}
       on:dragstart={handleDragStart}

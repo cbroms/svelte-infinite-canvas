@@ -14,6 +14,9 @@
   export let data;
   export let OuterComponent;
   export let InnerComponent;
+  export let LineComponent;
+  export let LineAnnotationComponent;
+
   export let x;
   export let y;
 
@@ -53,7 +56,13 @@
       {showControls}
     />
     {#each element.links as link}
-      <CanvasElementLink from={element.id} to={link} />
+      <CanvasElementLink
+        from={element.id}
+        to={link.id}
+        lineProps={link.props}
+        {LineComponent}
+        {LineAnnotationComponent}
+      />
     {/each}
   {/each}
   {#if $linking.start}
