@@ -7,6 +7,8 @@
 
   import { linking } from "./stores/linking";
   import { dragging } from "./stores/dragging";
+  import { position } from "./stores/position";
+  import { zoom } from "./stores/zoom";
 
   const dispatch = createEventDispatcher();
 
@@ -43,6 +45,15 @@
       $dragging.y === undefined
     ) {
       dispatch("dragstart", { id: $dragging.id });
+    }
+  }
+
+  $: {
+    if ($position) {
+      const parts = $position.split(",");
+      const thisX = -1 * parseInt(parts[4]) * (1 / $zoom);
+      const thisY = -1 * parseInt(parts[5]) * (1 / $zoom);
+      dispatch("offsetchange", { x: thisX, y: thisY });
     }
   }
 </script>

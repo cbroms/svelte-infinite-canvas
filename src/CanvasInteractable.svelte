@@ -33,9 +33,10 @@
 
     panzoomInstance.on("transform", (e) => {
       // keep track of the element's scale so we can adjust dragging to match
-      const level = parseFloat(
-        canvasElt.style.transform.split(",")[0].replace("matrix(", "")
-      );
+      const level =
+        parseFloat(
+          canvasElt.style.transform.split(",")[0].replace("matrix(", "")
+        ) || 1;
       zoom.set(level);
       position.set(canvasElt.style.transform);
     });

@@ -57,8 +57,8 @@
         $linkedElements[to].y + (toPos.height * (1 / $zoom)) / 2
       );
 
-      height = Math.abs(adjustedToY - adjustedFromY);
-      width = Math.abs($linkedElements[to].x - adjustedFromX);
+      height = Math.abs(adjustedToY - adjustedFromY) || 0;
+      width = Math.abs($linkedElements[to].x - adjustedFromX) || 0;
 
       if (adjustedToY < adjustedFromY) {
         // top to bottom

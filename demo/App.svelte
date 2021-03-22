@@ -2,11 +2,22 @@
   //   import InfiniteCanvas from "../src/CanvasInteractable.svelte";
   //   import CanvasElement from "../src/CanvasElement.svelte";
   //   import CanvasElementLink from "../src/CanvasElementLink.svelte";
+  import { onMount } from "svelte";
   import Canvas from "../src/Canvas.svelte";
   import Unit from "./Unit.svelte";
   import Inner from "./Inner.svelte";
   import Line from "./Line.svelte";
   import LineAnnotation from "./LineAnnotation.svelte";
+
+  let areaElt = null;
+  let bounds = { width: 0, height: 0 };
+  let centerX;
+  let centerY;
+
+  onMount(() => {
+    const eltBounds = areaElt.getBoundingClientRect();
+    bounds = { width: eltBounds.width, height: eltBounds.height };
+  });
 
   let data = [
     {
@@ -83,12 +94,32 @@
       return elt;
     });
   };
+
+  const handleOffset = (e) => {
+    centerX = e.detail.x + bounds.width / 2;
+    centerY = e.detail.y + bounds.height / 2;
+  };
+
+  const handleCreateUnit = () => {
+    data = [
+      ...data,
+      {
+        id: data.length + 1,
+        x: centerX,
+        y: centerY,
+        text: "a new unit",
+        links: [],
+      },
+    ];
+  };
 </script>
 
 <div class="layout">
   <div class="sidebar" />
-  <div class="header" />
-  <div class="area">
+  <div class="header">
+    <button on:click={handleCreateUnit}>Create new unit</button>
+  </div>
+  <div class="area" bind:this={areaElt}>
     <Canvas
       {data}
       OuterComponent={Unit}
@@ -99,6 +130,7 @@
       on:linkend={handleLinkEnd}
       on:dragstart={handleDragStart}
       on:dragend={handleDragEnd}
+      on:offsetchange={handleOffset}
       x={2000}
       y={2000}
     />
