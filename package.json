@@ -1,6 +1,6 @@
 {
     "name": "svelte-infinite-canvas",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "description": "A pannable and zoomable interface for movable and linkable elements.",
     "svelte": "src/index.js",
     "module": "dist/index.mjs",
