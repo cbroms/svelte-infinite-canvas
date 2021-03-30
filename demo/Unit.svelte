@@ -20,7 +20,7 @@
   }
 
   .text {
-    max-width: 300px;
+    width: 300px;
     padding: 10px;
   }
 

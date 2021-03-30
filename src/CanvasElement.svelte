@@ -2,6 +2,7 @@
   import { linkedElements } from "./stores/linkedElements";
   import { dragging } from "./stores/dragging";
   import { linking } from "./stores/linking";
+  import { animating } from "./stores/animating";
   import { zoom } from "./stores/zoom";
 
   import { onMount } from "svelte";
@@ -18,6 +19,24 @@
 
   let element = null;
   let linkStarterElt = null;
+
+  let prevHeight = 0;
+  let prevWidth = 0;
+
+  let height = 0;
+  let width = 0;
+
+  $: {
+    // when the width or height changes (perhaps due to an animation)
+    // rerender the connections
+    if (prevHeight !== height || prevWidth !== width) {
+      animating.update((s) => {
+        return [...s, id];
+      });
+      prevHeight = height;
+      prevWidth = width;
+    }
+  }
 
   onMount(() => {
     linkedElements.update((elts) => {
@@ -86,6 +105,8 @@
 
 <div
   on:click={linkEnd}
+  bind:clientHeight={height}
+  bind:clientWidth={width}
   bind:this={element}
   class="canvas-element"
   style="top: {y}px; left: {x}px;"

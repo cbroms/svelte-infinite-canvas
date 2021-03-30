@@ -12,12 +12,12 @@
 
   const dispatch = createEventDispatcher();
 
-  export let showControls;
   export let data;
   export let OuterComponent;
-  export let InnerComponent;
   export let LineComponent;
-  export let LineAnnotationComponent;
+  export let InnerComponent = null;
+  export let LineAnnotationComponent = null;
+  export let panzoomInstance = null;
 
   export let x;
   export let y;
@@ -58,30 +58,28 @@
   }
 </script>
 
-<CanvasInteractable {x} {y}>
-  {#each data as element}
-    <CanvasElement
-      {OuterComponent}
-      {InnerComponent}
-      {...element}
-      {showControls}
-    />
-    {#each element.links as link}
-      <CanvasElementLink
-        from={element.id}
-        to={link.id}
-        lineProps={link.props}
-        {LineComponent}
-        {LineAnnotationComponent}
-      />
+<CanvasInteractable {x} {y} bind:panzoomInstance>
+  <div slot="content">
+    {#each data as element}
+      <CanvasElement {OuterComponent} {InnerComponent} {...element} />
+      {#each element.links as link}
+        <CanvasElementLink
+          from={element.id}
+          to={link.id}
+          lineProps={link.props}
+          {LineComponent}
+          {LineAnnotationComponent}
+        />
+      {/each}
     {/each}
-  {/each}
-  {#if $linking.start}
-    <MousePositionElement />
-    <CanvasElementLink
-      from={$linking.start}
-      to="mouse-position"
-      {LineComponent}
-    />
-  {/if}
+    {#if $linking.start}
+      <MousePositionElement />
+      <CanvasElementLink
+        from={$linking.start}
+        to="mouse-position"
+        {LineComponent}
+      />
+    {/if}
+  </div>
+  <div slot="controls"><slot name="controls" /></div>
 </CanvasInteractable>

@@ -4,6 +4,7 @@ var app = (function () {
     'use strict';
 
     function noop$3() { }
+    const identity = x => x;
     function assign(tar, src) {
         // @ts-ignore
         for (const k in src)
@@ -85,6 +86,41 @@ var app = (function () {
         }
     }
 
+    const is_client = typeof window !== 'undefined';
+    let now = is_client
+        ? () => window.performance.now()
+        : () => Date.now();
+    let raf = is_client ? cb => requestAnimationFrame(cb) : noop$3;
+
+    const tasks = new Set();
+    function run_tasks(now) {
+        tasks.forEach(task => {
+            if (!task.c(now)) {
+                tasks.delete(task);
+                task.f();
+            }
+        });
+        if (tasks.size !== 0)
+            raf(run_tasks);
+    }
+    /**
+     * Creates a new task that runs on each raf frame
+     * until it returns a falsy value or is aborted
+     */
+    function loop(callback) {
+        let task;
+        if (tasks.size === 0)
+            raf(run_tasks);
+        return {
+            promise: new Promise(fulfill => {
+                tasks.add(task = { c: callback, f: fulfill });
+            }),
+            abort() {
+                tasks.delete(task);
+            }
+        };
+    }
+
     function append(target, node) {
         target.appendChild(node);
     }
@@ -131,6 +167,59 @@ var app = (function () {
     function set_style(node, key, value, important) {
         node.style.setProperty(key, value, important ? 'important' : '');
     }
+    // unfortunately this can't be a constant as that wouldn't be tree-shakeable
+    // so we cache the result instead
+    let crossorigin;
+    function is_crossorigin() {
+        if (crossorigin === undefined) {
+            crossorigin = false;
+            try {
+                if (typeof window !== 'undefined' && window.parent) {
+                    void window.parent.document;
+                }
+            }
+            catch (error) {
+                crossorigin = true;
+            }
+        }
+        return crossorigin;
+    }
+    function add_resize_listener(node, fn) {
+        const computed_style = getComputedStyle(node);
+        if (computed_style.position === 'static') {
+            node.style.position = 'relative';
+        }
+        const iframe = element('iframe');
+        iframe.setAttribute('style', 'display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; ' +
+            'overflow: hidden; border: 0; opacity: 0; pointer-events: none; z-index: -1;');
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.tabIndex = -1;
+        const crossorigin = is_crossorigin();
+        let unsubscribe;
+        if (crossorigin) {
+            iframe.src = "data:text/html,<script>onresize=function(){parent.postMessage(0,'*')}</script>";
+            unsubscribe = listen(window, 'message', (event) => {
+                if (event.source === iframe.contentWindow)
+                    fn();
+            });
+        }
+        else {
+            iframe.src = 'about:blank';
+            iframe.onload = () => {
+                unsubscribe = listen(iframe.contentWindow, 'resize', fn);
+            };
+        }
+        append(node, iframe);
+        return () => {
+            if (crossorigin) {
+                unsubscribe();
+            }
+            else if (unsubscribe && iframe.contentWindow) {
+                unsubscribe();
+            }
+            detach(iframe);
+        };
+    }
     function toggle_class(element, name, toggle) {
         element.classList[toggle ? 'add' : 'remove'](name);
     }
@@ -169,6 +258,67 @@ var app = (function () {
         d() {
             this.n.forEach(detach);
         }
+    }
+
+    const active_docs = new Set();
+    let active = 0;
+    // https://github.com/darkskyapp/string-hash/blob/master/index.js
+    function hash(str) {
+        let hash = 5381;
+        let i = str.length;
+        while (i--)
+            hash = ((hash << 5) - hash) ^ str.charCodeAt(i);
+        return hash >>> 0;
+    }
+    function create_rule(node, a, b, duration, delay, ease, fn, uid = 0) {
+        const step = 16.666 / duration;
+        let keyframes = '{\n';
+        for (let p = 0; p <= 1; p += step) {
+            const t = a + (b - a) * ease(p);
+            keyframes += p * 100 + `%{${fn(t, 1 - t)}}\n`;
+        }
+        const rule = keyframes + `100% {${fn(b, 1 - b)}}\n}`;
+        const name = `__svelte_${hash(rule)}_${uid}`;
+        const doc = node.ownerDocument;
+        active_docs.add(doc);
+        const stylesheet = doc.__svelte_stylesheet || (doc.__svelte_stylesheet = doc.head.appendChild(element('style')).sheet);
+        const current_rules = doc.__svelte_rules || (doc.__svelte_rules = {});
+        if (!current_rules[name]) {
+            current_rules[name] = true;
+            stylesheet.insertRule(`@keyframes ${name} ${rule}`, stylesheet.cssRules.length);
+        }
+        const animation = node.style.animation || '';
+        node.style.animation = `${animation ? `${animation}, ` : ''}${name} ${duration}ms linear ${delay}ms 1 both`;
+        active += 1;
+        return name;
+    }
+    function delete_rule(node, name) {
+        const previous = (node.style.animation || '').split(', ');
+        const next = previous.filter(name
+            ? anim => anim.indexOf(name) < 0 // remove specific animation
+            : anim => anim.indexOf('__svelte') === -1 // remove all Svelte animations
+        );
+        const deleted = previous.length - next.length;
+        if (deleted) {
+            node.style.animation = next.join(', ');
+            active -= deleted;
+            if (!active)
+                clear_rules();
+        }
+    }
+    function clear_rules() {
+        raf(() => {
+            if (active)
+                return;
+            active_docs.forEach(doc => {
+                const stylesheet = doc.__svelte_stylesheet;
+                let i = stylesheet.cssRules.length;
+                while (i--)
+                    stylesheet.deleteRule(i);
+                doc.__svelte_rules = {};
+            });
+            active_docs.clear();
+        });
     }
 
     let current_component;
@@ -215,6 +365,9 @@ var app = (function () {
     }
     function add_render_callback(fn) {
         render_callbacks.push(fn);
+    }
+    function add_flush_callback(fn) {
+        flush_callbacks.push(fn);
     }
     let flushing = false;
     const seen_callbacks = new Set();
@@ -264,6 +417,20 @@ var app = (function () {
             $$.after_update.forEach(add_render_callback);
         }
     }
+
+    let promise;
+    function wait() {
+        if (!promise) {
+            promise = Promise.resolve();
+            promise.then(() => {
+                promise = null;
+            });
+        }
+        return promise;
+    }
+    function dispatch(node, direction, kind) {
+        node.dispatchEvent(custom_event(`${direction ? 'intro' : 'outro'}${kind}`));
+    }
     const outroing = new Set();
     let outros;
     function group_outros() {
@@ -300,6 +467,112 @@ var app = (function () {
             });
             block.o(local);
         }
+    }
+    const null_transition = { duration: 0 };
+    function create_bidirectional_transition(node, fn, params, intro) {
+        let config = fn(node, params);
+        let t = intro ? 0 : 1;
+        let running_program = null;
+        let pending_program = null;
+        let animation_name = null;
+        function clear_animation() {
+            if (animation_name)
+                delete_rule(node, animation_name);
+        }
+        function init(program, duration) {
+            const d = program.b - t;
+            duration *= Math.abs(d);
+            return {
+                a: t,
+                b: program.b,
+                d,
+                duration,
+                start: program.start,
+                end: program.start + duration,
+                group: program.group
+            };
+        }
+        function go(b) {
+            const { delay = 0, duration = 300, easing = identity, tick = noop$3, css } = config || null_transition;
+            const program = {
+                start: now() + delay,
+                b
+            };
+            if (!b) {
+                // @ts-ignore todo: improve typings
+                program.group = outros;
+                outros.r += 1;
+            }
+            if (running_program || pending_program) {
+                pending_program = program;
+            }
+            else {
+                // if this is an intro, and there's a delay, we need to do
+                // an initial tick and/or apply CSS animation immediately
+                if (css) {
+                    clear_animation();
+                    animation_name = create_rule(node, t, b, duration, delay, easing, css);
+                }
+                if (b)
+                    tick(0, 1);
+                running_program = init(program, duration);
+                add_render_callback(() => dispatch(node, b, 'start'));
+                loop(now => {
+                    if (pending_program && now > pending_program.start) {
+                        running_program = init(pending_program, duration);
+                        pending_program = null;
+                        dispatch(node, running_program.b, 'start');
+                        if (css) {
+                            clear_animation();
+                            animation_name = create_rule(node, t, running_program.b, running_program.duration, 0, easing, config.css);
+                        }
+                    }
+                    if (running_program) {
+                        if (now >= running_program.end) {
+                            tick(t = running_program.b, 1 - t);
+                            dispatch(node, running_program.b, 'end');
+                            if (!pending_program) {
+                                // we're done
+                                if (running_program.b) {
+                                    // intro — we can tidy up immediately
+                                    clear_animation();
+                                }
+                                else {
+                                    // outro — needs to be coordinated
+                                    if (!--running_program.group.r)
+                                        run_all(running_program.group.c);
+                                }
+                            }
+                            running_program = null;
+                        }
+                        else if (now >= running_program.start) {
+                            const p = now - running_program.start;
+                            t = running_program.a + running_program.d * easing(p / running_program.duration);
+                            tick(t, 1 - t);
+                        }
+                    }
+                    return !!(running_program || pending_program);
+                });
+            }
+        }
+        return {
+            run(b) {
+                if (is_function(config)) {
+                    wait().then(() => {
+                        // @ts-ignore
+                        config = config();
+                        go(b);
+                    });
+                }
+                else {
+                    go(b);
+                }
+            },
+            end() {
+                clear_animation();
+                running_program = pending_program = null;
+            }
+        };
     }
 
     const globals = (typeof window !== 'undefined'
@@ -343,6 +616,14 @@ var app = (function () {
     }
     function get_spread_object(spread_props) {
         return typeof spread_props === 'object' && spread_props !== null ? spread_props : {};
+    }
+
+    function bind(component, name, callback) {
+        const index = component.$$.props[name];
+        if (index !== undefined) {
+            component.$$.bound[index] = callback;
+            callback(component.$$.ctx[index]);
+        }
     }
     function create_component(block) {
         block && block.c();
@@ -601,20 +882,46 @@ var app = (function () {
         return { set, update, subscribe };
     }
 
+    /*
+    Contains a map of element references and x/y positions:
+    {
+        [id: String]: {
+            element: DOMNode,
+            x: Number,
+            y: Number,
+        }
+    }
+    */
     const linkedElements = writable({});
 
+    /*
+    Contains the item being dragged
+    {
+        id: String,
+        x: Number,
+        y: Number,
+        dropped: bool,
+    }
+    */
     const dragging = writable({});
 
-    const linking = writable({});
+    /*
+    Contains the ids of any animating objects
+    [
+        id: String
+    ]
+    */
+    const animating = writable([]);
 
-    const position = writable("");
-
+    /*
+    Contains the zoom level as a Number
+    */
     const zoom = writable(1);
 
     /* src/CanvasElementLink.svelte generated by Svelte v3.35.0 */
-    const file$7 = "src/CanvasElementLink.svelte";
+    const file$8 = "src/CanvasElementLink.svelte";
 
-    // (88:0) {#if $linkedElements[to] && $linkedElements[from]}
+    // (99:0) {#if $linkedElements[to] && $linkedElements[from]}
     function create_if_block$3(ctx) {
     	let switch_instance;
     	let t;
@@ -629,12 +936,12 @@ var app = (function () {
     					line: [
     						create_line_slot,
     						({ hoverColor, color, stroke, hoverStroke }) => ({
-    							20: hoverColor,
-    							21: color,
-    							22: stroke,
-    							23: hoverStroke
+    							21: hoverColor,
+    							22: color,
+    							23: stroke,
+    							24: hoverStroke
     						}),
-    						({ hoverColor, color, stroke, hoverStroke }) => (hoverColor ? 1048576 : 0) | (color ? 2097152 : 0) | (stroke ? 4194304 : 0) | (hoverStroke ? 8388608 : 0)
+    						({ hoverColor, color, stroke, hoverStroke }) => (hoverColor ? 2097152 : 0) | (color ? 4194304 : 0) | (stroke ? 8388608 : 0) | (hoverStroke ? 16777216 : 0)
     					]
     				},
     				$$scope: { ctx }
@@ -669,7 +976,7 @@ var app = (function () {
     		p: function update(ctx, dirty) {
     			const switch_instance_changes = {};
 
-    			if (dirty & /*$$scope, width, height, stroke, x, y, from, to, lineX1, lineY1, lineX2, lineY2, hovering, hoverColor, color, hoverStroke*/ 32538467) {
+    			if (dirty & /*$$scope, width, height, stroke, x, y, from, to, lineX1, lineY1, lineX2, lineY2, hovering, hoverColor, color, hoverStroke*/ 65044323) {
     				switch_instance_changes.$$scope = { dirty, ctx };
     			}
 
@@ -743,14 +1050,14 @@ var app = (function () {
     		block,
     		id: create_if_block$3.name,
     		type: "if",
-    		source: "(88:0) {#if $linkedElements[to] && $linkedElements[from]}",
+    		source: "(99:0) {#if $linkedElements[to] && $linkedElements[from]}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (90:4) 
+    // (101:4) 
     function create_line_slot(ctx) {
     	let div;
     	let svg;
@@ -772,28 +1079,28 @@ var app = (function () {
     			attr_dev(line, "x1", /*lineX1*/ ctx[10]);
     			attr_dev(line, "y1", /*lineY1*/ ctx[12]);
     			attr_dev(line, "x2", /*lineX2*/ ctx[11]);
-    			attr_dev(line, "y2", line_y__value = /*lineY2*/ ctx[13] + /*stroke*/ ctx[22]);
+    			attr_dev(line, "y2", line_y__value = /*lineY2*/ ctx[13] + /*stroke*/ ctx[23]);
 
     			attr_dev(line, "stroke", line_stroke_value = /*hovering*/ ctx[14]
-    			? /*hoverColor*/ ctx[20]
-    			: /*color*/ ctx[21]);
+    			? /*hoverColor*/ ctx[21]
+    			: /*color*/ ctx[22]);
 
     			attr_dev(line, "stroke-width", line_stroke_width_value = /*hovering*/ ctx[14]
-    			? /*hoverStroke*/ ctx[23]
-    			: /*stroke*/ ctx[22]);
+    			? /*hoverStroke*/ ctx[24]
+    			: /*stroke*/ ctx[23]);
 
     			attr_dev(line, "class", "svelte-1604o2h");
-    			add_location(line, file$7, 110, 8, 3062);
-    			attr_dev(svg, "viewBox", svg_viewBox_value = "0 0 " + /*width*/ ctx[6] + " " + (/*height*/ ctx[5] + /*stroke*/ ctx[22] * 2 + 4));
+    			add_location(line, file$8, 121, 8, 3449);
+    			attr_dev(svg, "viewBox", svg_viewBox_value = "0 0 " + /*width*/ ctx[6] + " " + (/*height*/ ctx[5] + /*stroke*/ ctx[23] * 2 + 4));
     			attr_dev(svg, "xmlns", "http://www.w3.org/2000/svg");
-    			set_style(svg, "height", /*height*/ ctx[5] + /*stroke*/ ctx[22] * 2 + 4 + "px");
+    			set_style(svg, "height", /*height*/ ctx[5] + /*stroke*/ ctx[23] * 2 + 4 + "px");
     			set_style(svg, "width", /*width*/ ctx[6] + "px");
     			set_style(svg, "left", /*x*/ ctx[8] + "px");
     			set_style(svg, "top", /*y*/ ctx[9] + "px");
     			attr_dev(svg, "class", "svelte-1604o2h");
-    			add_location(svg, file$7, 90, 6, 2502);
+    			add_location(svg, file$8, 101, 6, 2889);
     			attr_dev(div, "slot", "line");
-    			add_location(div, file$7, 89, 4, 2426);
+    			add_location(div, file$8, 100, 4, 2813);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -827,28 +1134,28 @@ var app = (function () {
     				attr_dev(line, "x2", /*lineX2*/ ctx[11]);
     			}
 
-    			if (dirty & /*lineY2, stroke*/ 4202496 && line_y__value !== (line_y__value = /*lineY2*/ ctx[13] + /*stroke*/ ctx[22])) {
+    			if (dirty & /*lineY2, stroke*/ 8396800 && line_y__value !== (line_y__value = /*lineY2*/ ctx[13] + /*stroke*/ ctx[23])) {
     				attr_dev(line, "y2", line_y__value);
     			}
 
-    			if (dirty & /*hovering, hoverColor, color*/ 3162112 && line_stroke_value !== (line_stroke_value = /*hovering*/ ctx[14]
-    			? /*hoverColor*/ ctx[20]
-    			: /*color*/ ctx[21])) {
+    			if (dirty & /*hovering, hoverColor, color*/ 6307840 && line_stroke_value !== (line_stroke_value = /*hovering*/ ctx[14]
+    			? /*hoverColor*/ ctx[21]
+    			: /*color*/ ctx[22])) {
     				attr_dev(line, "stroke", line_stroke_value);
     			}
 
-    			if (dirty & /*hovering, hoverStroke, stroke*/ 12599296 && line_stroke_width_value !== (line_stroke_width_value = /*hovering*/ ctx[14]
-    			? /*hoverStroke*/ ctx[23]
-    			: /*stroke*/ ctx[22])) {
+    			if (dirty & /*hovering, hoverStroke, stroke*/ 25182208 && line_stroke_width_value !== (line_stroke_width_value = /*hovering*/ ctx[14]
+    			? /*hoverStroke*/ ctx[24]
+    			: /*stroke*/ ctx[23])) {
     				attr_dev(line, "stroke-width", line_stroke_width_value);
     			}
 
-    			if (dirty & /*width, height, stroke*/ 4194400 && svg_viewBox_value !== (svg_viewBox_value = "0 0 " + /*width*/ ctx[6] + " " + (/*height*/ ctx[5] + /*stroke*/ ctx[22] * 2 + 4))) {
+    			if (dirty & /*width, height, stroke*/ 8388704 && svg_viewBox_value !== (svg_viewBox_value = "0 0 " + /*width*/ ctx[6] + " " + (/*height*/ ctx[5] + /*stroke*/ ctx[23] * 2 + 4))) {
     				attr_dev(svg, "viewBox", svg_viewBox_value);
     			}
 
-    			if (dirty & /*height, stroke*/ 4194336) {
-    				set_style(svg, "height", /*height*/ ctx[5] + /*stroke*/ ctx[22] * 2 + 4 + "px");
+    			if (dirty & /*height, stroke*/ 8388640) {
+    				set_style(svg, "height", /*height*/ ctx[5] + /*stroke*/ ctx[23] * 2 + 4 + "px");
     			}
 
     			if (dirty & /*width*/ 64) {
@@ -874,14 +1181,14 @@ var app = (function () {
     		block,
     		id: create_line_slot.name,
     		type: "slot",
-    		source: "(90:4) ",
+    		source: "(101:4) ",
     		ctx
     	});
 
     	return block;
     }
 
-    // (127:2) {#if hovering}
+    // (138:2) {#if hovering}
     function create_if_block_1$1(ctx) {
     	let div;
     	let switch_instance;
@@ -913,7 +1220,7 @@ var app = (function () {
     			attr_dev(div, "class", "line-annotation svelte-1604o2h");
     			set_style(div, "left", /*x*/ ctx[8] + /*width*/ ctx[6] / 2 + "px");
     			set_style(div, "top", /*y*/ ctx[9] + /*height*/ ctx[5] / 2 + "px");
-    			add_location(div, file$7, 127, 4, 3509);
+    			add_location(div, file$8, 138, 4, 3896);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -980,7 +1287,7 @@ var app = (function () {
     		block,
     		id: create_if_block_1$1.name,
     		type: "if",
-    		source: "(127:2) {#if hovering}",
+    		source: "(138:2) {#if hovering}",
     		ctx
     	});
 
@@ -1058,13 +1365,16 @@ var app = (function () {
     function instance$9($$self, $$props, $$invalidate) {
     	let $linkedElements;
     	let $dragging;
+    	let $animating;
     	let $zoom;
     	validate_store(linkedElements, "linkedElements");
     	component_subscribe($$self, linkedElements, $$value => $$invalidate(7, $linkedElements = $$value));
     	validate_store(dragging, "dragging");
     	component_subscribe($$self, dragging, $$value => $$invalidate(18, $dragging = $$value));
+    	validate_store(animating, "animating");
+    	component_subscribe($$self, animating, $$value => $$invalidate(19, $animating = $$value));
     	validate_store(zoom, "zoom");
-    	component_subscribe($$self, zoom, $$value => $$invalidate(19, $zoom = $$value));
+    	component_subscribe($$self, zoom, $$value => $$invalidate(20, $zoom = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots("CanvasElementLink", slots, []);
     	let { from = null } = $$props;
@@ -1111,8 +1421,7 @@ var app = (function () {
     	$$self.$capture_state = () => ({
     		linkedElements,
     		dragging,
-    		linking,
-    		position,
+    		animating,
     		zoom,
     		from,
     		to,
@@ -1133,6 +1442,7 @@ var app = (function () {
     		handleLineLeave,
     		$linkedElements,
     		$dragging,
+    		$animating,
     		$zoom
     	});
 
@@ -1158,10 +1468,10 @@ var app = (function () {
     	}
 
     	$$self.$$.update = () => {
-    		if ($$self.$$.dirty & /*$linkedElements, to, from, $dragging, $zoom, height, width*/ 786659) {
+    		if ($$self.$$.dirty & /*$linkedElements, to, from, $dragging, $animating, $zoom, height, width*/ 1835235) {
     			{
     				// recalculate when linked elements updates, or one of the ends is being dragged
-    				if ($linkedElements[to] && $linkedElements[from] && ($dragging.id === undefined || $dragging.id === from || $dragging.id === to)) {
+    				if ($linkedElements[to] && $linkedElements[from] && ($dragging.id === undefined || $dragging.id === from || $dragging.id === to || $animating.includes(to) || $animating.includes(from))) {
     					// TODO: this doesn't work when the elements  render off screen, since everything is relative to the viewport
     					const fromPos = $linkedElements[from].element.getBoundingClientRect();
 
@@ -1198,6 +1508,17 @@ var app = (function () {
     						$$invalidate(11, lineX2 = width);
     						$$invalidate(10, lineX1 = 0);
     					}
+
+    					// remove any of the animating ids from the store now that we've updated the connection
+    					if ($animating.includes(to) || $animating.includes(from)) {
+    						let newAnimating = [...$animating];
+
+    						newAnimating = newAnimating.filter(id => {
+    							return id !== to && id !== from;
+    						});
+
+    						animating.set(newAnimating);
+    					}
     				}
     			}
     		}
@@ -1223,6 +1544,7 @@ var app = (function () {
     		handleLineHover,
     		handleLineLeave,
     		$dragging,
+    		$animating,
     		$zoom
     	];
     }
@@ -1298,6 +1620,11 @@ var app = (function () {
     		throw new Error("<CanvasElementLink>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
     }
+
+    /*
+    Contains the current transform matrix as a String
+    */
+    const position = writable("");
 
     /**
      * This module used to unify mouse wheel behavior between different browsers in 2014
@@ -3055,75 +3382,47 @@ var app = (function () {
 
     autoRun();
 
-    /* src/CanvasInteractable.svelte generated by Svelte v3.35.0 */
-    const file$6 = "src/CanvasInteractable.svelte";
-
-    // (62:2) {#if showControls}
-    function create_if_block$2(ctx) {
-    	let div;
-    	let button0;
-    	let t1;
-    	let button1;
-
-    	const block = {
-    		c: function create() {
-    			div = element("div");
-    			button0 = element("button");
-    			button0.textContent = "+ Zoom in";
-    			t1 = space();
-    			button1 = element("button");
-    			button1.textContent = "- Zoom out";
-    			attr_dev(button0, "class", "svelte-80d8yk");
-    			add_location(button0, file$6, 63, 6, 1601);
-    			attr_dev(button1, "class", "svelte-80d8yk");
-    			add_location(button1, file$6, 64, 6, 1634);
-    			attr_dev(div, "class", "canvas-controls svelte-80d8yk");
-    			add_location(div, file$6, 62, 4, 1565);
-    		},
-    		m: function mount(target, anchor) {
-    			insert_dev(target, div, anchor);
-    			append_dev(div, button0);
-    			append_dev(div, t1);
-    			append_dev(div, button1);
-    		},
-    		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div);
-    		}
-    	};
-
-    	dispatch_dev("SvelteRegisterBlock", {
-    		block,
-    		id: create_if_block$2.name,
-    		type: "if",
-    		source: "(62:2) {#if showControls}",
-    		ctx
-    	});
-
-    	return block;
+    /*
+    Contains the start and end elements being linked and the point to draw the line to 
+    {
+       start: String,
+       end: String,
+       x: Number,  // mouse x pos
+       y: Number,  // mouse y pos
     }
+    */
+    const linking = writable({});
+
+    /* src/CanvasInteractable.svelte generated by Svelte v3.35.0 */
+    const file$7 = "src/CanvasInteractable.svelte";
+    const get_controls_slot_changes$1 = dirty => ({});
+    const get_controls_slot_context$1 = ctx => ({});
+    const get_content_slot_changes = dirty => ({});
+    const get_content_slot_context = ctx => ({});
 
     function create_fragment$8(ctx) {
     	let div1;
     	let div0;
     	let t;
     	let current;
-    	const default_slot_template = /*#slots*/ ctx[9].default;
-    	const default_slot = create_slot(default_slot_template, ctx, /*$$scope*/ ctx[8], null);
-    	let if_block = /*showControls*/ ctx[0] && create_if_block$2(ctx);
+    	const content_slot_template = /*#slots*/ ctx[8].content;
+    	const content_slot = create_slot(content_slot_template, ctx, /*$$scope*/ ctx[7], get_content_slot_context);
+    	const controls_slot_template = /*#slots*/ ctx[8].controls;
+    	const controls_slot = create_slot(controls_slot_template, ctx, /*$$scope*/ ctx[7], get_controls_slot_context$1);
 
     	const block = {
     		c: function create() {
     			div1 = element("div");
     			div0 = element("div");
-    			if (default_slot) default_slot.c();
+    			if (content_slot) content_slot.c();
     			t = space();
-    			if (if_block) if_block.c();
-    			set_style(div0, "height", /*y*/ ctx[2] + "px");
-    			set_style(div0, "width", /*x*/ ctx[1] + "px");
-    			attr_dev(div0, "class", "svelte-80d8yk");
-    			add_location(div0, file$6, 58, 2, 1453);
-    			attr_dev(div1, "class", "canvas-container svelte-80d8yk");
-    			add_location(div1, file$6, 57, 0, 1420);
+    			if (controls_slot) controls_slot.c();
+    			set_style(div0, "height", /*y*/ ctx[1] + "px");
+    			set_style(div0, "width", /*x*/ ctx[0] + "px");
+    			attr_dev(div0, "class", "svelte-z67t9k");
+    			add_location(div0, file$7, 53, 2, 1288);
+    			attr_dev(div1, "class", "canvas-container svelte-z67t9k");
+    			add_location(div1, file$7, 52, 0, 1255);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -3132,55 +3431,56 @@ var app = (function () {
     			insert_dev(target, div1, anchor);
     			append_dev(div1, div0);
 
-    			if (default_slot) {
-    				default_slot.m(div0, null);
+    			if (content_slot) {
+    				content_slot.m(div0, null);
     			}
 
-    			/*div0_binding*/ ctx[10](div0);
+    			/*div0_binding*/ ctx[9](div0);
     			append_dev(div1, t);
-    			if (if_block) if_block.m(div1, null);
+
+    			if (controls_slot) {
+    				controls_slot.m(div1, null);
+    			}
+
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
-    			if (default_slot) {
-    				if (default_slot.p && dirty & /*$$scope*/ 256) {
-    					update_slot(default_slot, default_slot_template, ctx, /*$$scope*/ ctx[8], dirty, null, null);
+    			if (content_slot) {
+    				if (content_slot.p && dirty & /*$$scope*/ 128) {
+    					update_slot(content_slot, content_slot_template, ctx, /*$$scope*/ ctx[7], dirty, get_content_slot_changes, get_content_slot_context);
     				}
     			}
 
-    			if (!current || dirty & /*y*/ 4) {
-    				set_style(div0, "height", /*y*/ ctx[2] + "px");
+    			if (!current || dirty & /*y*/ 2) {
+    				set_style(div0, "height", /*y*/ ctx[1] + "px");
     			}
 
-    			if (!current || dirty & /*x*/ 2) {
-    				set_style(div0, "width", /*x*/ ctx[1] + "px");
+    			if (!current || dirty & /*x*/ 1) {
+    				set_style(div0, "width", /*x*/ ctx[0] + "px");
     			}
 
-    			if (/*showControls*/ ctx[0]) {
-    				if (if_block) ; else {
-    					if_block = create_if_block$2(ctx);
-    					if_block.c();
-    					if_block.m(div1, null);
+    			if (controls_slot) {
+    				if (controls_slot.p && dirty & /*$$scope*/ 128) {
+    					update_slot(controls_slot, controls_slot_template, ctx, /*$$scope*/ ctx[7], dirty, get_controls_slot_changes$1, get_controls_slot_context$1);
     				}
-    			} else if (if_block) {
-    				if_block.d(1);
-    				if_block = null;
     			}
     		},
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(default_slot, local);
+    			transition_in(content_slot, local);
+    			transition_in(controls_slot, local);
     			current = true;
     		},
     		o: function outro(local) {
-    			transition_out(default_slot, local);
+    			transition_out(content_slot, local);
+    			transition_out(controls_slot, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div1);
-    			if (default_slot) default_slot.d(detaching);
-    			/*div0_binding*/ ctx[10](null);
-    			if (if_block) if_block.d();
+    			if (content_slot) content_slot.d(detaching);
+    			/*div0_binding*/ ctx[9](null);
+    			if (controls_slot) controls_slot.d(detaching);
     		}
     	};
 
@@ -3199,12 +3499,11 @@ var app = (function () {
     	let $dragging;
     	let $linking;
     	validate_store(dragging, "dragging");
-    	component_subscribe($$self, dragging, $$value => $$invalidate(6, $dragging = $$value));
+    	component_subscribe($$self, dragging, $$value => $$invalidate(5, $dragging = $$value));
     	validate_store(linking, "linking");
-    	component_subscribe($$self, linking, $$value => $$invalidate(7, $linking = $$value));
+    	component_subscribe($$self, linking, $$value => $$invalidate(6, $linking = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
-    	validate_slots("CanvasInteractable", slots, ['default']);
-    	let { showControls = false } = $$props;
+    	validate_slots("CanvasInteractable", slots, ['content','controls']);
 
     	let { panzoomOptions = { maxZoom: 5, minZoom: 0.2, initialZoom: 1 } } = $$props; // beforeMouseDown: (e) => {
     	//   return !e.altKey;
@@ -3213,21 +3512,19 @@ var app = (function () {
     	let { x = 1000 } = $$props;
     	let { y = 1000 } = $$props;
     	let canvasElt = null;
-    	let panzoomInstance = null;
+    	let { panzoomInstance = null } = $$props;
 
     	onMount(() => {
-    		$$invalidate(5, panzoomInstance = panzoom(canvasElt, panzoomOptions));
+    		$$invalidate(3, panzoomInstance = panzoom(canvasElt, panzoomOptions));
 
     		// panzoomInstance.moveTo(centerX, centerY);
-    		// linkedElements.update((elts) => {
-    		//   return { ...elts, canvas: canvasElt };
-    		// });
     		panzoomInstance.on("transform", e => {
     			// keep track of the element's scale so we can adjust dragging to match
-    			const level = parseFloat(canvasElt.style.transform.split(",")[0].replace("matrix(", "")) || 1;
-
-    			zoom.set(level);
-    			position.set(canvasElt.style.transform);
+    			if (canvasElt) {
+    				const level = parseFloat(canvasElt.style.transform.split(",")[0].replace("matrix(", ""));
+    				zoom.set(level);
+    				position.set(canvasElt.style.transform);
+    			}
     		});
     	});
 
@@ -3235,7 +3532,7 @@ var app = (function () {
     		panzoomInstance.dispose();
     	});
 
-    	const writable_props = ["showControls", "panzoomOptions", "x", "y"];
+    	const writable_props = ["panzoomOptions", "x", "y", "panzoomInstance"];
 
     	Object.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<CanvasInteractable> was created with unknown prop '${key}'`);
@@ -3244,28 +3541,26 @@ var app = (function () {
     	function div0_binding($$value) {
     		binding_callbacks[$$value ? "unshift" : "push"](() => {
     			canvasElt = $$value;
-    			$$invalidate(3, canvasElt);
+    			$$invalidate(2, canvasElt);
     		});
     	}
 
     	$$self.$$set = $$props => {
-    		if ("showControls" in $$props) $$invalidate(0, showControls = $$props.showControls);
     		if ("panzoomOptions" in $$props) $$invalidate(4, panzoomOptions = $$props.panzoomOptions);
-    		if ("x" in $$props) $$invalidate(1, x = $$props.x);
-    		if ("y" in $$props) $$invalidate(2, y = $$props.y);
-    		if ("$$scope" in $$props) $$invalidate(8, $$scope = $$props.$$scope);
+    		if ("x" in $$props) $$invalidate(0, x = $$props.x);
+    		if ("y" in $$props) $$invalidate(1, y = $$props.y);
+    		if ("panzoomInstance" in $$props) $$invalidate(3, panzoomInstance = $$props.panzoomInstance);
+    		if ("$$scope" in $$props) $$invalidate(7, $$scope = $$props.$$scope);
     	};
 
     	$$self.$capture_state = () => ({
     		onMount,
     		onDestroy,
     		zoom,
-    		linkedElements,
     		position,
     		panzoom,
     		dragging,
     		linking,
-    		showControls,
     		panzoomOptions,
     		x,
     		y,
@@ -3276,12 +3571,11 @@ var app = (function () {
     	});
 
     	$$self.$inject_state = $$props => {
-    		if ("showControls" in $$props) $$invalidate(0, showControls = $$props.showControls);
     		if ("panzoomOptions" in $$props) $$invalidate(4, panzoomOptions = $$props.panzoomOptions);
-    		if ("x" in $$props) $$invalidate(1, x = $$props.x);
-    		if ("y" in $$props) $$invalidate(2, y = $$props.y);
-    		if ("canvasElt" in $$props) $$invalidate(3, canvasElt = $$props.canvasElt);
-    		if ("panzoomInstance" in $$props) $$invalidate(5, panzoomInstance = $$props.panzoomInstance);
+    		if ("x" in $$props) $$invalidate(0, x = $$props.x);
+    		if ("y" in $$props) $$invalidate(1, y = $$props.y);
+    		if ("canvasElt" in $$props) $$invalidate(2, canvasElt = $$props.canvasElt);
+    		if ("panzoomInstance" in $$props) $$invalidate(3, panzoomInstance = $$props.panzoomInstance);
     	};
 
     	if ($$props && "$$inject" in $$props) {
@@ -3289,7 +3583,7 @@ var app = (function () {
     	}
 
     	$$self.$$.update = () => {
-    		if ($$self.$$.dirty & /*$dragging, $linking, panzoomInstance*/ 224) {
+    		if ($$self.$$.dirty & /*$dragging, $linking, panzoomInstance*/ 104) {
     			{
     				if ($dragging.id || $linking.start) {
     					panzoomInstance.pause();
@@ -3301,12 +3595,11 @@ var app = (function () {
     	};
 
     	return [
-    		showControls,
     		x,
     		y,
     		canvasElt,
-    		panzoomOptions,
     		panzoomInstance,
+    		panzoomOptions,
     		$dragging,
     		$linking,
     		$$scope,
@@ -3320,10 +3613,10 @@ var app = (function () {
     		super(options);
 
     		init(this, options, instance$8, create_fragment$8, safe_not_equal, {
-    			showControls: 0,
     			panzoomOptions: 4,
-    			x: 1,
-    			y: 2
+    			x: 0,
+    			y: 1,
+    			panzoomInstance: 3
     		});
 
     		dispatch_dev("SvelteRegisterComponent", {
@@ -3332,14 +3625,6 @@ var app = (function () {
     			options,
     			id: create_fragment$8.name
     		});
-    	}
-
-    	get showControls() {
-    		throw new Error("<CanvasInteractable>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
-    	set showControls(value) {
-    		throw new Error("<CanvasInteractable>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	get panzoomOptions() {
@@ -3365,12 +3650,20 @@ var app = (function () {
     	set y(value) {
     		throw new Error("<CanvasInteractable>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
+
+    	get panzoomInstance() {
+    		throw new Error("<CanvasInteractable>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set panzoomInstance(value) {
+    		throw new Error("<CanvasInteractable>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
     }
 
     /* src/MousePositionElement.svelte generated by Svelte v3.35.0 */
 
     const { console: console_1$1 } = globals;
-    const file$5 = "src/MousePositionElement.svelte";
+    const file$6 = "src/MousePositionElement.svelte";
 
     function create_fragment$7(ctx) {
     	let div;
@@ -3381,7 +3674,7 @@ var app = (function () {
     			attr_dev(div, "class", "mouse-position svelte-f2ukwj");
     			set_style(div, "top", /*$linking*/ ctx[1].y + "px");
     			set_style(div, "left", /*$linking*/ ctx[1].x + "px");
-    			add_location(div, file$5, 82, 0, 1942);
+    			add_location(div, file$6, 82, 0, 1942);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -3557,9 +3850,9 @@ var app = (function () {
     }
 
     /* src/CanvasElement.svelte generated by Svelte v3.35.0 */
-    const file$4 = "src/CanvasElement.svelte";
+    const file$5 = "src/CanvasElement.svelte";
 
-    // (94:4) 
+    // (115:4) 
     function create_grippable_slot(ctx) {
     	let div;
     	let mounted;
@@ -3570,20 +3863,20 @@ var app = (function () {
     			div = element("div");
     			attr_dev(div, "slot", "grippable");
     			attr_dev(div, "class", "slot-filler-elt grabber svelte-k2j4yl");
-    			toggle_class(div, "grabbed", /*$dragging*/ ctx[9].id === /*id*/ ctx[2]);
-    			add_location(div, file$4, 93, 4, 2050);
+    			toggle_class(div, "grabbed", /*$dragging*/ ctx[11].id === /*id*/ ctx[2]);
+    			add_location(div, file$5, 114, 4, 2533);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
 
     			if (!mounted) {
-    				dispose = listen_dev(div, "mousedown", /*dragStart*/ ctx[10], false, false, false);
+    				dispose = listen_dev(div, "mousedown", /*dragStart*/ ctx[12], false, false, false);
     				mounted = true;
     			}
     		},
     		p: function update(ctx, dirty) {
-    			if (dirty & /*$dragging, id*/ 516) {
-    				toggle_class(div, "grabbed", /*$dragging*/ ctx[9].id === /*id*/ ctx[2]);
+    			if (dirty & /*$dragging, id*/ 2052) {
+    				toggle_class(div, "grabbed", /*$dragging*/ ctx[11].id === /*id*/ ctx[2]);
     			}
     		},
     		d: function destroy(detaching) {
@@ -3597,14 +3890,14 @@ var app = (function () {
     		block,
     		id: create_grippable_slot.name,
     		type: "slot",
-    		source: "(94:4) ",
+    		source: "(115:4) ",
     		ctx
     	});
 
     	return block;
     }
 
-    // (103:22) 
+    // (124:22) 
     function create_if_block_1(ctx) {
     	let switch_instance;
     	let switch_instance_anchor;
@@ -3690,15 +3983,15 @@ var app = (function () {
     		block,
     		id: create_if_block_1.name,
     		type: "if",
-    		source: "(103:22) ",
+    		source: "(124:22) ",
     		ctx
     	});
 
     	return block;
     }
 
-    // (101:6) {#if text}
-    function create_if_block$1(ctx) {
+    // (122:6) {#if text}
+    function create_if_block$2(ctx) {
     	let html_tag;
     	let html_anchor;
 
@@ -3724,22 +4017,22 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block$1.name,
+    		id: create_if_block$2.name,
     		type: "if",
-    		source: "(101:6) {#if text}",
+    		source: "(122:6) {#if text}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (100:4) 
+    // (121:4) 
     function create_text_slot(ctx) {
     	let div;
     	let current_block_type_index;
     	let if_block;
     	let current;
-    	const if_block_creators = [create_if_block$1, create_if_block_1];
+    	const if_block_creators = [create_if_block$2, create_if_block_1];
     	const if_blocks = [];
 
     	function select_block_type(ctx, dirty) {
@@ -3757,7 +4050,7 @@ var app = (function () {
     			div = element("div");
     			if (if_block) if_block.c();
     			attr_dev(div, "slot", "text");
-    			add_location(div, file$4, 99, 4, 2200);
+    			add_location(div, file$5, 120, 4, 2683);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -3826,14 +4119,14 @@ var app = (function () {
     		block,
     		id: create_text_slot.name,
     		type: "slot",
-    		source: "(100:4) ",
+    		source: "(121:4) ",
     		ctx
     	});
 
     	return block;
     }
 
-    // (107:4) 
+    // (128:4) 
     function create_linkStarter_slot(ctx) {
     	let div;
     	let mounted;
@@ -3844,21 +4137,21 @@ var app = (function () {
     			div = element("div");
     			attr_dev(div, "slot", "linkStarter");
     			attr_dev(div, "class", "slot-filler-elt starter svelte-k2j4yl");
-    			add_location(div, file$4, 106, 4, 2368);
+    			add_location(div, file$5, 127, 4, 2851);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
-    			/*div_binding*/ ctx[13](div);
+    			/*div_binding*/ ctx[17](div);
 
     			if (!mounted) {
-    				dispose = listen_dev(div, "mousedown", /*linkStart*/ ctx[11], false, false, false);
+    				dispose = listen_dev(div, "mousedown", /*linkStart*/ ctx[13], false, false, false);
     				mounted = true;
     			}
     		},
     		p: noop$3,
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div);
-    			/*div_binding*/ ctx[13](null);
+    			/*div_binding*/ ctx[17](null);
     			mounted = false;
     			dispose();
     		}
@@ -3868,7 +4161,7 @@ var app = (function () {
     		block,
     		id: create_linkStarter_slot.name,
     		type: "slot",
-    		source: "(107:4) ",
+    		source: "(128:4) ",
     		ctx
     	});
 
@@ -3878,6 +4171,7 @@ var app = (function () {
     function create_fragment$6(ctx) {
     	let div;
     	let switch_instance;
+    	let div_resize_listener;
     	let current;
     	let mounted;
     	let dispose;
@@ -3908,7 +4202,8 @@ var app = (function () {
     			attr_dev(div, "class", "canvas-element svelte-k2j4yl");
     			set_style(div, "top", /*y*/ ctx[1] + "px");
     			set_style(div, "left", /*x*/ ctx[0] + "px");
-    			add_location(div, file$4, 86, 0, 1893);
+    			add_render_callback(() => /*div_elementresize_handler*/ ctx[18].call(div));
+    			add_location(div, file$5, 105, 0, 2320);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -3920,18 +4215,19 @@ var app = (function () {
     				mount_component(switch_instance, div, null);
     			}
 
-    			/*div_binding_1*/ ctx[14](div);
+    			div_resize_listener = add_resize_listener(div, /*div_elementresize_handler*/ ctx[18].bind(div));
+    			/*div_binding_1*/ ctx[19](div);
     			current = true;
 
     			if (!mounted) {
-    				dispose = listen_dev(div, "click", /*linkEnd*/ ctx[12], false, false, false);
+    				dispose = listen_dev(div, "click", /*linkEnd*/ ctx[14], false, false, false);
     				mounted = true;
     			}
     		},
     		p: function update(ctx, [dirty]) {
     			const switch_instance_changes = {};
 
-    			if (dirty & /*$$scope, linkStarterElt, text, InnerComponent, props, $dragging, id*/ 8389468) {
+    			if (dirty & /*$$scope, linkStarterElt, text, InnerComponent, props, $dragging, id*/ 268438620) {
     				switch_instance_changes.$$scope = { dirty, ctx };
     			}
 
@@ -3979,7 +4275,8 @@ var app = (function () {
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div);
     			if (switch_instance) destroy_component(switch_instance);
-    			/*div_binding_1*/ ctx[14](null);
+    			div_resize_listener();
+    			/*div_binding_1*/ ctx[19](null);
     			mounted = false;
     			dispose();
     		}
@@ -4001,11 +4298,11 @@ var app = (function () {
     	let $linking;
     	let $dragging;
     	validate_store(zoom, "zoom");
-    	component_subscribe($$self, zoom, $$value => $$invalidate(19, $zoom = $$value));
+    	component_subscribe($$self, zoom, $$value => $$invalidate(24, $zoom = $$value));
     	validate_store(linking, "linking");
-    	component_subscribe($$self, linking, $$value => $$invalidate(20, $linking = $$value));
+    	component_subscribe($$self, linking, $$value => $$invalidate(25, $linking = $$value));
     	validate_store(dragging, "dragging");
-    	component_subscribe($$self, dragging, $$value => $$invalidate(9, $dragging = $$value));
+    	component_subscribe($$self, dragging, $$value => $$invalidate(11, $dragging = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots("CanvasElement", slots, []);
     	let { x = 0 } = $$props;
@@ -4018,6 +4315,10 @@ var app = (function () {
     	let oldX, oldY, thisX, thisY;
     	let element = null;
     	let linkStarterElt = null;
+    	let prevHeight = 0;
+    	let prevWidth = 0;
+    	let height = 0;
+    	let width = 0;
 
     	onMount(() => {
     		linkedElements.update(elts => {
@@ -4089,14 +4390,21 @@ var app = (function () {
     	function div_binding($$value) {
     		binding_callbacks[$$value ? "unshift" : "push"](() => {
     			linkStarterElt = $$value;
-    			$$invalidate(8, linkStarterElt);
+    			$$invalidate(10, linkStarterElt);
     		});
+    	}
+
+    	function div_elementresize_handler() {
+    		height = this.clientHeight;
+    		width = this.clientWidth;
+    		$$invalidate(7, height);
+    		$$invalidate(8, width);
     	}
 
     	function div_binding_1($$value) {
     		binding_callbacks[$$value ? "unshift" : "push"](() => {
     			element = $$value;
-    			$$invalidate(7, element);
+    			$$invalidate(9, element);
     		});
     	}
 
@@ -4114,6 +4422,7 @@ var app = (function () {
     		linkedElements,
     		dragging,
     		linking,
+    		animating,
     		zoom,
     		onMount,
     		x,
@@ -4129,6 +4438,10 @@ var app = (function () {
     		thisY,
     		element,
     		linkStarterElt,
+    		prevHeight,
+    		prevWidth,
+    		height,
+    		width,
     		dragEnd,
     		dragDuring,
     		dragStart,
@@ -4151,13 +4464,34 @@ var app = (function () {
     		if ("oldY" in $$props) oldY = $$props.oldY;
     		if ("thisX" in $$props) thisX = $$props.thisX;
     		if ("thisY" in $$props) thisY = $$props.thisY;
-    		if ("element" in $$props) $$invalidate(7, element = $$props.element);
-    		if ("linkStarterElt" in $$props) $$invalidate(8, linkStarterElt = $$props.linkStarterElt);
+    		if ("element" in $$props) $$invalidate(9, element = $$props.element);
+    		if ("linkStarterElt" in $$props) $$invalidate(10, linkStarterElt = $$props.linkStarterElt);
+    		if ("prevHeight" in $$props) $$invalidate(15, prevHeight = $$props.prevHeight);
+    		if ("prevWidth" in $$props) $$invalidate(16, prevWidth = $$props.prevWidth);
+    		if ("height" in $$props) $$invalidate(7, height = $$props.height);
+    		if ("width" in $$props) $$invalidate(8, width = $$props.width);
     	};
 
     	if ($$props && "$$inject" in $$props) {
     		$$self.$inject_state($$props.$$inject);
     	}
+
+    	$$self.$$.update = () => {
+    		if ($$self.$$.dirty & /*prevHeight, height, prevWidth, width, id*/ 98692) {
+    			{
+    				// when the width or height changes (perhaps due to an animation)
+    				// rerender the connections
+    				if (prevHeight !== height || prevWidth !== width) {
+    					animating.update(s => {
+    						return [...s, id];
+    					});
+
+    					$$invalidate(15, prevHeight = height);
+    					$$invalidate(16, prevWidth = width);
+    				}
+    			}
+    		}
+    	};
 
     	return [
     		x,
@@ -4167,13 +4501,18 @@ var app = (function () {
     		props,
     		OuterComponent,
     		InnerComponent,
+    		height,
+    		width,
     		element,
     		linkStarterElt,
     		$dragging,
     		dragStart,
     		linkStart,
     		linkEnd,
+    		prevHeight,
+    		prevWidth,
     		div_binding,
+    		div_elementresize_handler,
     		div_binding_1
     	];
     }
@@ -4273,30 +4612,34 @@ var app = (function () {
     }
 
     /* src/Canvas.svelte generated by Svelte v3.35.0 */
+    const file$4 = "src/Canvas.svelte";
 
     function get_each_context(ctx, list, i) {
-    	const child_ctx = ctx.slice();
-    	child_ctx[13] = list[i];
-    	return child_ctx;
-    }
-
-    function get_each_context_1(ctx, list, i) {
     	const child_ctx = ctx.slice();
     	child_ctx[16] = list[i];
     	return child_ctx;
     }
 
-    // (69:4) {#each element.links as link}
+    function get_each_context_1(ctx, list, i) {
+    	const child_ctx = ctx.slice();
+    	child_ctx[19] = list[i];
+    	return child_ctx;
+    }
+
+    const get_controls_slot_changes = dirty => ({});
+    const get_controls_slot_context = ctx => ({});
+
+    // (65:6) {#each element.links as link}
     function create_each_block_1(ctx) {
     	let canvaselementlink;
     	let current;
 
     	canvaselementlink = new CanvasElementLink({
     			props: {
-    				from: /*element*/ ctx[13].id,
-    				to: /*link*/ ctx[16].id,
-    				lineProps: /*link*/ ctx[16].props,
-    				LineComponent: /*LineComponent*/ ctx[4],
+    				from: /*element*/ ctx[16].id,
+    				to: /*link*/ ctx[19].id,
+    				lineProps: /*link*/ ctx[19].props,
+    				LineComponent: /*LineComponent*/ ctx[3],
     				LineAnnotationComponent: /*LineAnnotationComponent*/ ctx[5]
     			},
     			$$inline: true
@@ -4312,10 +4655,10 @@ var app = (function () {
     		},
     		p: function update(ctx, dirty) {
     			const canvaselementlink_changes = {};
-    			if (dirty & /*data*/ 2) canvaselementlink_changes.from = /*element*/ ctx[13].id;
-    			if (dirty & /*data*/ 2) canvaselementlink_changes.to = /*link*/ ctx[16].id;
-    			if (dirty & /*data*/ 2) canvaselementlink_changes.lineProps = /*link*/ ctx[16].props;
-    			if (dirty & /*LineComponent*/ 16) canvaselementlink_changes.LineComponent = /*LineComponent*/ ctx[4];
+    			if (dirty & /*data*/ 2) canvaselementlink_changes.from = /*element*/ ctx[16].id;
+    			if (dirty & /*data*/ 2) canvaselementlink_changes.to = /*link*/ ctx[19].id;
+    			if (dirty & /*data*/ 2) canvaselementlink_changes.lineProps = /*link*/ ctx[19].props;
+    			if (dirty & /*LineComponent*/ 8) canvaselementlink_changes.LineComponent = /*LineComponent*/ ctx[3];
     			if (dirty & /*LineAnnotationComponent*/ 32) canvaselementlink_changes.LineAnnotationComponent = /*LineAnnotationComponent*/ ctx[5];
     			canvaselementlink.$set(canvaselementlink_changes);
     		},
@@ -4337,14 +4680,14 @@ var app = (function () {
     		block,
     		id: create_each_block_1.name,
     		type: "each",
-    		source: "(69:4) {#each element.links as link}",
+    		source: "(65:6) {#each element.links as link}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (62:2) {#each data as element}
+    // (63:4) {#each data as element}
     function create_each_block(ctx) {
     	let canvaselement;
     	let t;
@@ -4356,10 +4699,9 @@ var app = (function () {
     			OuterComponent: /*OuterComponent*/ ctx[2]
     		},
     		{
-    			InnerComponent: /*InnerComponent*/ ctx[3]
+    			InnerComponent: /*InnerComponent*/ ctx[4]
     		},
-    		/*element*/ ctx[13],
-    		{ showControls: /*showControls*/ ctx[0] }
+    		/*element*/ ctx[16]
     	];
 
     	let canvaselement_props = {};
@@ -4373,7 +4715,7 @@ var app = (function () {
     			$$inline: true
     		});
 
-    	let each_value_1 = /*element*/ ctx[13].links;
+    	let each_value_1 = /*element*/ ctx[16].links;
     	validate_each_argument(each_value_1);
     	let each_blocks = [];
 
@@ -4408,23 +4750,22 @@ var app = (function () {
     			current = true;
     		},
     		p: function update(ctx, dirty) {
-    			const canvaselement_changes = (dirty & /*OuterComponent, InnerComponent, data, showControls*/ 15)
+    			const canvaselement_changes = (dirty & /*OuterComponent, InnerComponent, data*/ 22)
     			? get_spread_update(canvaselement_spread_levels, [
     					dirty & /*OuterComponent*/ 4 && {
     						OuterComponent: /*OuterComponent*/ ctx[2]
     					},
-    					dirty & /*InnerComponent*/ 8 && {
-    						InnerComponent: /*InnerComponent*/ ctx[3]
+    					dirty & /*InnerComponent*/ 16 && {
+    						InnerComponent: /*InnerComponent*/ ctx[4]
     					},
-    					dirty & /*data*/ 2 && get_spread_object(/*element*/ ctx[13]),
-    					dirty & /*showControls*/ 1 && { showControls: /*showControls*/ ctx[0] }
+    					dirty & /*data*/ 2 && get_spread_object(/*element*/ ctx[16])
     				])
     			: {};
 
     			canvaselement.$set(canvaselement_changes);
 
-    			if (dirty & /*data, LineComponent, LineAnnotationComponent*/ 50) {
-    				each_value_1 = /*element*/ ctx[13].links;
+    			if (dirty & /*data, LineComponent, LineAnnotationComponent*/ 42) {
+    				each_value_1 = /*element*/ ctx[16].links;
     				validate_each_argument(each_value_1);
     				let i;
 
@@ -4483,15 +4824,15 @@ var app = (function () {
     		block,
     		id: create_each_block.name,
     		type: "each",
-    		source: "(62:2) {#each data as element}",
+    		source: "(63:4) {#each data as element}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (79:2) {#if $linking.start}
-    function create_if_block(ctx) {
+    // (75:4) {#if $linking.start}
+    function create_if_block$1(ctx) {
     	let mousepositionelement;
     	let t;
     	let canvaselementlink;
@@ -4502,7 +4843,7 @@ var app = (function () {
     			props: {
     				from: /*$linking*/ ctx[8].start,
     				to: "mouse-position",
-    				LineComponent: /*LineComponent*/ ctx[4]
+    				LineComponent: /*LineComponent*/ ctx[3]
     			},
     			$$inline: true
     		});
@@ -4522,7 +4863,7 @@ var app = (function () {
     		p: function update(ctx, dirty) {
     			const canvaselementlink_changes = {};
     			if (dirty & /*$linking*/ 256) canvaselementlink_changes.from = /*$linking*/ ctx[8].start;
-    			if (dirty & /*LineComponent*/ 16) canvaselementlink_changes.LineComponent = /*LineComponent*/ ctx[4];
+    			if (dirty & /*LineComponent*/ 8) canvaselementlink_changes.LineComponent = /*LineComponent*/ ctx[3];
     			canvaselementlink.$set(canvaselementlink_changes);
     		},
     		i: function intro(local) {
@@ -4545,19 +4886,19 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block.name,
+    		id: create_if_block$1.name,
     		type: "if",
-    		source: "(79:2) {#if $linking.start}",
+    		source: "(75:4) {#if $linking.start}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (61:0) <CanvasInteractable {x} {y}>
-    function create_default_slot(ctx) {
+    // (62:2) 
+    function create_content_slot(ctx) {
+    	let div;
     	let t;
-    	let if_block_anchor;
     	let current;
     	let each_value = /*data*/ ctx[1];
     	validate_each_argument(each_value);
@@ -4571,30 +4912,34 @@ var app = (function () {
     		each_blocks[i] = null;
     	});
 
-    	let if_block = /*$linking*/ ctx[8].start && create_if_block(ctx);
+    	let if_block = /*$linking*/ ctx[8].start && create_if_block$1(ctx);
 
     	const block = {
     		c: function create() {
+    			div = element("div");
+
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].c();
     			}
 
     			t = space();
     			if (if_block) if_block.c();
-    			if_block_anchor = empty();
+    			attr_dev(div, "slot", "content");
+    			add_location(div, file$4, 61, 2, 1701);
     		},
     		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+
     			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(target, anchor);
+    				each_blocks[i].m(div, null);
     			}
 
-    			insert_dev(target, t, anchor);
-    			if (if_block) if_block.m(target, anchor);
-    			insert_dev(target, if_block_anchor, anchor);
+    			append_dev(div, t);
+    			if (if_block) if_block.m(div, null);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
-    			if (dirty & /*data, LineComponent, LineAnnotationComponent, OuterComponent, InnerComponent, showControls*/ 63) {
+    			if (dirty & /*data, LineComponent, LineAnnotationComponent, OuterComponent, InnerComponent*/ 62) {
     				each_value = /*data*/ ctx[1];
     				validate_each_argument(each_value);
     				let i;
@@ -4609,7 +4954,7 @@ var app = (function () {
     						each_blocks[i] = create_each_block(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(t.parentNode, t);
+    						each_blocks[i].m(div, t);
     					}
     				}
 
@@ -4630,10 +4975,10 @@ var app = (function () {
     						transition_in(if_block, 1);
     					}
     				} else {
-    					if_block = create_if_block(ctx);
+    					if_block = create_if_block$1(ctx);
     					if_block.c();
     					transition_in(if_block, 1);
-    					if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    					if_block.m(div, null);
     				}
     			} else if (if_block) {
     				group_outros();
@@ -4666,18 +5011,73 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
     			destroy_each(each_blocks, detaching);
-    			if (detaching) detach_dev(t);
-    			if (if_block) if_block.d(detaching);
-    			if (detaching) detach_dev(if_block_anchor);
+    			if (if_block) if_block.d();
     		}
     	};
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_default_slot.name,
+    		id: create_content_slot.name,
     		type: "slot",
-    		source: "(61:0) <CanvasInteractable {x} {y}>",
+    		source: "(62:2) ",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (84:2) 
+    function create_controls_slot$1(ctx) {
+    	let div;
+    	let current;
+    	const controls_slot_template = /*#slots*/ ctx[12].controls;
+    	const controls_slot = create_slot(controls_slot_template, ctx, /*$$scope*/ ctx[14], get_controls_slot_context);
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+    			if (controls_slot) controls_slot.c();
+    			attr_dev(div, "slot", "controls");
+    			add_location(div, file$4, 83, 2, 2260);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+
+    			if (controls_slot) {
+    				controls_slot.m(div, null);
+    			}
+
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			if (controls_slot) {
+    				if (controls_slot.p && dirty & /*$$scope*/ 16384) {
+    					update_slot(controls_slot, controls_slot_template, ctx, /*$$scope*/ ctx[14], dirty, get_controls_slot_changes, get_controls_slot_context);
+    				}
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(controls_slot, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(controls_slot, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    			if (controls_slot) controls_slot.d(detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_controls_slot$1.name,
+    		type: "slot",
+    		source: "(84:2) ",
     		ctx
     	});
 
@@ -4686,17 +5086,33 @@ var app = (function () {
 
     function create_fragment$5(ctx) {
     	let canvasinteractable;
+    	let updating_panzoomInstance;
     	let current;
 
+    	function canvasinteractable_panzoomInstance_binding(value) {
+    		/*canvasinteractable_panzoomInstance_binding*/ ctx[13](value);
+    	}
+
+    	let canvasinteractable_props = {
+    		x: /*x*/ ctx[6],
+    		y: /*y*/ ctx[7],
+    		$$slots: {
+    			controls: [create_controls_slot$1],
+    			content: [create_content_slot]
+    		},
+    		$$scope: { ctx }
+    	};
+
+    	if (/*panzoomInstance*/ ctx[0] !== void 0) {
+    		canvasinteractable_props.panzoomInstance = /*panzoomInstance*/ ctx[0];
+    	}
+
     	canvasinteractable = new CanvasInteractable({
-    			props: {
-    				x: /*x*/ ctx[6],
-    				y: /*y*/ ctx[7],
-    				$$slots: { default: [create_default_slot] },
-    				$$scope: { ctx }
-    			},
+    			props: canvasinteractable_props,
     			$$inline: true
     		});
+
+    	binding_callbacks.push(() => bind(canvasinteractable, "panzoomInstance", canvasinteractable_panzoomInstance_binding));
 
     	const block = {
     		c: function create() {
@@ -4714,8 +5130,14 @@ var app = (function () {
     			if (dirty & /*x*/ 64) canvasinteractable_changes.x = /*x*/ ctx[6];
     			if (dirty & /*y*/ 128) canvasinteractable_changes.y = /*y*/ ctx[7];
 
-    			if (dirty & /*$$scope, $linking, LineComponent, data, LineAnnotationComponent, OuterComponent, InnerComponent, showControls*/ 524607) {
+    			if (dirty & /*$$scope, $linking, LineComponent, data, LineAnnotationComponent, OuterComponent, InnerComponent*/ 16702) {
     				canvasinteractable_changes.$$scope = { dirty, ctx };
+    			}
+
+    			if (!updating_panzoomInstance && dirty & /*panzoomInstance*/ 1) {
+    				updating_panzoomInstance = true;
+    				canvasinteractable_changes.panzoomInstance = /*panzoomInstance*/ ctx[0];
+    				add_flush_callback(() => updating_panzoomInstance = false);
     			}
 
     			canvasinteractable.$set(canvasinteractable_changes);
@@ -4759,24 +5181,24 @@ var app = (function () {
     	validate_store(zoom, "zoom");
     	component_subscribe($$self, zoom, $$value => $$invalidate(11, $zoom = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
-    	validate_slots("Canvas", slots, []);
+    	validate_slots("Canvas", slots, ['controls']);
     	const dispatch = createEventDispatcher();
-    	let { showControls } = $$props;
     	let { data } = $$props;
     	let { OuterComponent } = $$props;
-    	let { InnerComponent } = $$props;
     	let { LineComponent } = $$props;
-    	let { LineAnnotationComponent } = $$props;
+    	let { InnerComponent = null } = $$props;
+    	let { LineAnnotationComponent = null } = $$props;
+    	let { panzoomInstance = null } = $$props;
     	let { x } = $$props;
     	let { y } = $$props;
 
     	const writable_props = [
-    		"showControls",
     		"data",
     		"OuterComponent",
-    		"InnerComponent",
     		"LineComponent",
+    		"InnerComponent",
     		"LineAnnotationComponent",
+    		"panzoomInstance",
     		"x",
     		"y"
     	];
@@ -4785,15 +5207,21 @@ var app = (function () {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Canvas> was created with unknown prop '${key}'`);
     	});
 
+    	function canvasinteractable_panzoomInstance_binding(value) {
+    		panzoomInstance = value;
+    		$$invalidate(0, panzoomInstance);
+    	}
+
     	$$self.$$set = $$props => {
-    		if ("showControls" in $$props) $$invalidate(0, showControls = $$props.showControls);
     		if ("data" in $$props) $$invalidate(1, data = $$props.data);
     		if ("OuterComponent" in $$props) $$invalidate(2, OuterComponent = $$props.OuterComponent);
-    		if ("InnerComponent" in $$props) $$invalidate(3, InnerComponent = $$props.InnerComponent);
-    		if ("LineComponent" in $$props) $$invalidate(4, LineComponent = $$props.LineComponent);
+    		if ("LineComponent" in $$props) $$invalidate(3, LineComponent = $$props.LineComponent);
+    		if ("InnerComponent" in $$props) $$invalidate(4, InnerComponent = $$props.InnerComponent);
     		if ("LineAnnotationComponent" in $$props) $$invalidate(5, LineAnnotationComponent = $$props.LineAnnotationComponent);
+    		if ("panzoomInstance" in $$props) $$invalidate(0, panzoomInstance = $$props.panzoomInstance);
     		if ("x" in $$props) $$invalidate(6, x = $$props.x);
     		if ("y" in $$props) $$invalidate(7, y = $$props.y);
+    		if ("$$scope" in $$props) $$invalidate(14, $$scope = $$props.$$scope);
     	};
 
     	$$self.$capture_state = () => ({
@@ -4807,12 +5235,12 @@ var app = (function () {
     		position,
     		zoom,
     		dispatch,
-    		showControls,
     		data,
     		OuterComponent,
-    		InnerComponent,
     		LineComponent,
+    		InnerComponent,
     		LineAnnotationComponent,
+    		panzoomInstance,
     		x,
     		y,
     		$linking,
@@ -4822,12 +5250,12 @@ var app = (function () {
     	});
 
     	$$self.$inject_state = $$props => {
-    		if ("showControls" in $$props) $$invalidate(0, showControls = $$props.showControls);
     		if ("data" in $$props) $$invalidate(1, data = $$props.data);
     		if ("OuterComponent" in $$props) $$invalidate(2, OuterComponent = $$props.OuterComponent);
-    		if ("InnerComponent" in $$props) $$invalidate(3, InnerComponent = $$props.InnerComponent);
-    		if ("LineComponent" in $$props) $$invalidate(4, LineComponent = $$props.LineComponent);
+    		if ("LineComponent" in $$props) $$invalidate(3, LineComponent = $$props.LineComponent);
+    		if ("InnerComponent" in $$props) $$invalidate(4, InnerComponent = $$props.InnerComponent);
     		if ("LineAnnotationComponent" in $$props) $$invalidate(5, LineAnnotationComponent = $$props.LineAnnotationComponent);
+    		if ("panzoomInstance" in $$props) $$invalidate(0, panzoomInstance = $$props.panzoomInstance);
     		if ("x" in $$props) $$invalidate(6, x = $$props.x);
     		if ("y" in $$props) $$invalidate(7, y = $$props.y);
     	};
@@ -4877,18 +5305,21 @@ var app = (function () {
     	};
 
     	return [
-    		showControls,
+    		panzoomInstance,
     		data,
     		OuterComponent,
-    		InnerComponent,
     		LineComponent,
+    		InnerComponent,
     		LineAnnotationComponent,
     		x,
     		y,
     		$linking,
     		$dragging,
     		$position,
-    		$zoom
+    		$zoom,
+    		slots,
+    		canvasinteractable_panzoomInstance_binding,
+    		$$scope
     	];
     }
 
@@ -4897,12 +5328,12 @@ var app = (function () {
     		super(options);
 
     		init(this, options, instance$5, create_fragment$5, safe_not_equal, {
-    			showControls: 0,
     			data: 1,
     			OuterComponent: 2,
-    			InnerComponent: 3,
-    			LineComponent: 4,
+    			LineComponent: 3,
+    			InnerComponent: 4,
     			LineAnnotationComponent: 5,
+    			panzoomInstance: 0,
     			x: 6,
     			y: 7
     		});
@@ -4917,10 +5348,6 @@ var app = (function () {
     		const { ctx } = this.$$;
     		const props = options.props || {};
 
-    		if (/*showControls*/ ctx[0] === undefined && !("showControls" in props)) {
-    			console.warn("<Canvas> was created without expected prop 'showControls'");
-    		}
-
     		if (/*data*/ ctx[1] === undefined && !("data" in props)) {
     			console.warn("<Canvas> was created without expected prop 'data'");
     		}
@@ -4929,16 +5356,8 @@ var app = (function () {
     			console.warn("<Canvas> was created without expected prop 'OuterComponent'");
     		}
 
-    		if (/*InnerComponent*/ ctx[3] === undefined && !("InnerComponent" in props)) {
-    			console.warn("<Canvas> was created without expected prop 'InnerComponent'");
-    		}
-
-    		if (/*LineComponent*/ ctx[4] === undefined && !("LineComponent" in props)) {
+    		if (/*LineComponent*/ ctx[3] === undefined && !("LineComponent" in props)) {
     			console.warn("<Canvas> was created without expected prop 'LineComponent'");
-    		}
-
-    		if (/*LineAnnotationComponent*/ ctx[5] === undefined && !("LineAnnotationComponent" in props)) {
-    			console.warn("<Canvas> was created without expected prop 'LineAnnotationComponent'");
     		}
 
     		if (/*x*/ ctx[6] === undefined && !("x" in props)) {
@@ -4948,14 +5367,6 @@ var app = (function () {
     		if (/*y*/ ctx[7] === undefined && !("y" in props)) {
     			console.warn("<Canvas> was created without expected prop 'y'");
     		}
-    	}
-
-    	get showControls() {
-    		throw new Error("<Canvas>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
-    	set showControls(value) {
-    		throw new Error("<Canvas>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	get data() {
@@ -4974,14 +5385,6 @@ var app = (function () {
     		throw new Error("<Canvas>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
-    	get InnerComponent() {
-    		throw new Error("<Canvas>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
-    	set InnerComponent(value) {
-    		throw new Error("<Canvas>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
     	get LineComponent() {
     		throw new Error("<Canvas>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
@@ -4990,11 +5393,27 @@ var app = (function () {
     		throw new Error("<Canvas>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
+    	get InnerComponent() {
+    		throw new Error("<Canvas>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set InnerComponent(value) {
+    		throw new Error("<Canvas>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
     	get LineAnnotationComponent() {
     		throw new Error("<Canvas>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
     	set LineAnnotationComponent(value) {
+    		throw new Error("<Canvas>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get panzoomInstance() {
+    		throw new Error("<Canvas>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set panzoomInstance(value) {
     		throw new Error("<Canvas>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
 
@@ -5053,15 +5472,15 @@ var app = (function () {
     			t1 = space();
     			div2 = element("div");
     			if (linkStarter_slot) linkStarter_slot.c();
-    			attr_dev(div0, "class", "grippable svelte-1y2oj8f");
+    			attr_dev(div0, "class", "grippable svelte-154oe5m");
     			add_location(div0, file$3, 1, 2, 21);
-    			attr_dev(div1, "class", "text svelte-1y2oj8f");
+    			attr_dev(div1, "class", "text svelte-154oe5m");
     			add_location(div1, file$3, 3, 4, 109);
-    			attr_dev(div2, "class", "starter svelte-1y2oj8f");
+    			attr_dev(div2, "class", "starter svelte-154oe5m");
     			add_location(div2, file$3, 4, 4, 158);
-    			attr_dev(div3, "class", "unit-content svelte-1y2oj8f");
+    			attr_dev(div3, "class", "unit-content svelte-154oe5m");
     			add_location(div3, file$3, 2, 2, 78);
-    			attr_dev(div4, "class", "unit svelte-1y2oj8f");
+    			attr_dev(div4, "class", "unit svelte-154oe5m");
     			add_location(div4, file$3, 0, 0, 0);
     		},
     		l: function claim(nodes) {
@@ -5173,51 +5592,210 @@ var app = (function () {
     	}
     }
 
-    /* demo/Inner.svelte generated by Svelte v3.35.0 */
+    function cubicOut(t) {
+        const f = t - 1.0;
+        return f * f * f + 1.0;
+    }
 
+    function slide(node, { delay = 0, duration = 400, easing = cubicOut } = {}) {
+        const style = getComputedStyle(node);
+        const opacity = +style.opacity;
+        const height = parseFloat(style.height);
+        const padding_top = parseFloat(style.paddingTop);
+        const padding_bottom = parseFloat(style.paddingBottom);
+        const margin_top = parseFloat(style.marginTop);
+        const margin_bottom = parseFloat(style.marginBottom);
+        const border_top_width = parseFloat(style.borderTopWidth);
+        const border_bottom_width = parseFloat(style.borderBottomWidth);
+        return {
+            delay,
+            duration,
+            easing,
+            css: t => 'overflow: hidden;' +
+                `opacity: ${Math.min(t * 20, 1) * opacity};` +
+                `height: ${t * height}px;` +
+                `padding-top: ${t * padding_top}px;` +
+                `padding-bottom: ${t * padding_bottom}px;` +
+                `margin-top: ${t * margin_top}px;` +
+                `margin-bottom: ${t * margin_bottom}px;` +
+                `border-top-width: ${t * border_top_width}px;` +
+                `border-bottom-width: ${t * border_bottom_width}px;`
+        };
+    }
+
+    /* demo/Inner.svelte generated by Svelte v3.35.0 */
     const file$2 = "demo/Inner.svelte";
 
-    function create_fragment$3(ctx) {
+    // (10:2) {#if active}
+    function create_if_block(ctx) {
     	let div;
-    	let p;
     	let t0;
+    	let br0;
     	let t1;
-    	let input;
+    	let br1;
+    	let t2;
+    	let br2;
+    	let t3;
+    	let div_transition;
+    	let current;
 
     	const block = {
     		c: function create() {
     			div = element("div");
+    			t0 = text("Something secret and hidden");
+    			br0 = element("br");
+    			t1 = text("Something secret and hidden");
+    			br1 = element("br");
+    			t2 = text("Something secret and hidden");
+    			br2 = element("br");
+    			t3 = text("Something secret and hidden");
+    			add_location(br0, file$2, 11, 33, 252);
+    			add_location(br1, file$2, 11, 66, 285);
+    			add_location(br2, file$2, 12, 35, 324);
+    			add_location(div, file$2, 10, 4, 196);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+    			append_dev(div, t0);
+    			append_dev(div, br0);
+    			append_dev(div, t1);
+    			append_dev(div, br1);
+    			append_dev(div, t2);
+    			append_dev(div, br2);
+    			append_dev(div, t3);
+    			current = true;
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+
+    			add_render_callback(() => {
+    				if (!div_transition) div_transition = create_bidirectional_transition(div, slide, {}, true);
+    				div_transition.run(1);
+    			});
+
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			if (!div_transition) div_transition = create_bidirectional_transition(div, slide, {}, false);
+    			div_transition.run(0);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    			if (detaching && div_transition) div_transition.end();
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block.name,
+    		type: "if",
+    		source: "(10:2) {#if active}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    function create_fragment$3(ctx) {
+    	let div;
+    	let t0;
+    	let button;
+    	let t1_value = (!/*active*/ ctx[2] ? "Show" : "Hide") + "";
+    	let t1;
+    	let t2;
+    	let p;
+    	let t3;
+    	let t4;
+    	let input;
+    	let current;
+    	let mounted;
+    	let dispose;
+    	let if_block = /*active*/ ctx[2] && create_if_block(ctx);
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+    			if (if_block) if_block.c();
+    			t0 = space();
+    			button = element("button");
+    			t1 = text(t1_value);
+    			t2 = space();
     			p = element("p");
-    			t0 = text(/*description*/ ctx[0]);
-    			t1 = space();
+    			t3 = text(/*description*/ ctx[0]);
+    			t4 = space();
     			input = element("input");
-    			add_location(p, file$2, 6, 2, 111);
+    			add_location(button, file$2, 15, 2, 379);
+    			add_location(p, file$2, 20, 2, 482);
     			attr_dev(input, "placeholder", /*placeholder*/ ctx[1]);
-    			add_location(input, file$2, 7, 2, 134);
+    			add_location(input, file$2, 21, 2, 505);
     			attr_dev(div, "class", "inner-thingy svelte-93v29o");
-    			add_location(div, file$2, 5, 0, 82);
+    			add_location(div, file$2, 8, 0, 150);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
+    			if (if_block) if_block.m(div, null);
+    			append_dev(div, t0);
+    			append_dev(div, button);
+    			append_dev(button, t1);
+    			append_dev(div, t2);
     			append_dev(div, p);
-    			append_dev(p, t0);
-    			append_dev(div, t1);
+    			append_dev(p, t3);
+    			append_dev(div, t4);
     			append_dev(div, input);
+    			current = true;
+
+    			if (!mounted) {
+    				dispose = listen_dev(button, "click", /*click_handler*/ ctx[3], false, false, false);
+    				mounted = true;
+    			}
     		},
     		p: function update(ctx, [dirty]) {
-    			if (dirty & /*description*/ 1) set_data_dev(t0, /*description*/ ctx[0]);
+    			if (/*active*/ ctx[2]) {
+    				if (if_block) {
+    					if (dirty & /*active*/ 4) {
+    						transition_in(if_block, 1);
+    					}
+    				} else {
+    					if_block = create_if_block(ctx);
+    					if_block.c();
+    					transition_in(if_block, 1);
+    					if_block.m(div, t0);
+    				}
+    			} else if (if_block) {
+    				group_outros();
 
-    			if (dirty & /*placeholder*/ 2) {
+    				transition_out(if_block, 1, 1, () => {
+    					if_block = null;
+    				});
+
+    				check_outros();
+    			}
+
+    			if ((!current || dirty & /*active*/ 4) && t1_value !== (t1_value = (!/*active*/ ctx[2] ? "Show" : "Hide") + "")) set_data_dev(t1, t1_value);
+    			if (!current || dirty & /*description*/ 1) set_data_dev(t3, /*description*/ ctx[0]);
+
+    			if (!current || dirty & /*placeholder*/ 2) {
     				attr_dev(input, "placeholder", /*placeholder*/ ctx[1]);
     			}
     		},
-    		i: noop$3,
-    		o: noop$3,
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div);
+    			if (if_block) if_block.d();
+    			mounted = false;
+    			dispose();
     		}
     	};
 
@@ -5237,29 +5815,35 @@ var app = (function () {
     	validate_slots("Inner", slots, []);
     	let { description = "" } = $$props;
     	let { placeholder = "" } = $$props;
+    	let active = false;
     	const writable_props = ["description", "placeholder"];
 
     	Object.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console.warn(`<Inner> was created with unknown prop '${key}'`);
     	});
 
+    	const click_handler = () => {
+    		$$invalidate(2, active = !active);
+    	};
+
     	$$self.$$set = $$props => {
     		if ("description" in $$props) $$invalidate(0, description = $$props.description);
     		if ("placeholder" in $$props) $$invalidate(1, placeholder = $$props.placeholder);
     	};
 
-    	$$self.$capture_state = () => ({ description, placeholder });
+    	$$self.$capture_state = () => ({ slide, description, placeholder, active });
 
     	$$self.$inject_state = $$props => {
     		if ("description" in $$props) $$invalidate(0, description = $$props.description);
     		if ("placeholder" in $$props) $$invalidate(1, placeholder = $$props.placeholder);
+    		if ("active" in $$props) $$invalidate(2, active = $$props.active);
     	};
 
     	if ($$props && "$$inject" in $$props) {
     		$$self.$inject_state($$props.$$inject);
     	}
 
-    	return [description, placeholder];
+    	return [description, placeholder, active, click_handler];
     }
 
     class Inner extends SvelteComponentDev {
@@ -5487,37 +6071,117 @@ var app = (function () {
     const { console: console_1 } = globals;
     const file = "demo/App.svelte";
 
+    // (144:6) 
+    function create_controls_slot(ctx) {
+    	let div1;
+    	let button0;
+    	let t1;
+    	let div0;
+    	let button1;
+    	let t3;
+    	let button2;
+    	let mounted;
+    	let dispose;
+
+    	const block = {
+    		c: function create() {
+    			div1 = element("div");
+    			button0 = element("button");
+    			button0.textContent = "Create new unit";
+    			t1 = space();
+    			div0 = element("div");
+    			button1 = element("button");
+    			button1.textContent = "+ Zoom in";
+    			t3 = space();
+    			button2 = element("button");
+    			button2.textContent = "- Zoom out";
+    			attr_dev(button0, "class", "svelte-2ar2im");
+    			add_location(button0, file, 144, 8, 3549);
+    			attr_dev(button1, "class", "svelte-2ar2im");
+    			add_location(button1, file, 146, 10, 3634);
+    			attr_dev(button2, "class", "svelte-2ar2im");
+    			add_location(button2, file, 147, 10, 3689);
+    			add_location(div0, file, 145, 8, 3618);
+    			attr_dev(div1, "slot", "controls");
+    			attr_dev(div1, "class", "controls svelte-2ar2im");
+    			add_location(div1, file, 143, 6, 3502);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div1, anchor);
+    			append_dev(div1, button0);
+    			append_dev(div1, t1);
+    			append_dev(div1, div0);
+    			append_dev(div0, button1);
+    			append_dev(div0, t3);
+    			append_dev(div0, button2);
+
+    			if (!mounted) {
+    				dispose = [
+    					listen_dev(button0, "click", /*handleCreateUnit*/ ctx[8], false, false, false),
+    					listen_dev(button1, "click", /*zoomIn*/ ctx[9], false, false, false),
+    					listen_dev(button2, "click", /*zoomOut*/ ctx[10], false, false, false)
+    				];
+
+    				mounted = true;
+    			}
+    		},
+    		p: noop$3,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div1);
+    			mounted = false;
+    			run_all(dispose);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_controls_slot.name,
+    		type: "slot",
+    		source: "(144:6) ",
+    		ctx
+    	});
+
+    	return block;
+    }
+
     function create_fragment(ctx) {
     	let div3;
     	let div0;
     	let t0;
     	let div1;
-    	let button;
-    	let t2;
+    	let t1;
     	let div2;
     	let canvas;
+    	let updating_panzoomInstance;
     	let current;
-    	let mounted;
-    	let dispose;
 
-    	canvas = new Canvas({
-    			props: {
-    				data: /*data*/ ctx[1],
-    				OuterComponent: Unit,
-    				InnerComponent: Inner,
-    				LineComponent: Line,
-    				LineAnnotationComponent: LineAnnotation,
-    				x: 2000,
-    				y: 2000
-    			},
-    			$$inline: true
-    		});
+    	function canvas_panzoomInstance_binding(value) {
+    		/*canvas_panzoomInstance_binding*/ ctx[11](value);
+    	}
 
-    	canvas.$on("linkstart", /*handleLinkStart*/ ctx[2]);
-    	canvas.$on("linkend", /*handleLinkEnd*/ ctx[3]);
-    	canvas.$on("dragstart", /*handleDragStart*/ ctx[4]);
-    	canvas.$on("dragend", /*handleDragEnd*/ ctx[5]);
-    	canvas.$on("offsetchange", /*handleOffset*/ ctx[6]);
+    	let canvas_props = {
+    		data: /*data*/ ctx[2],
+    		OuterComponent: Unit,
+    		InnerComponent: Inner,
+    		LineComponent: Line,
+    		LineAnnotationComponent: LineAnnotation,
+    		x: 2000,
+    		y: 2000,
+    		$$slots: { controls: [create_controls_slot] },
+    		$$scope: { ctx }
+    	};
+
+    	if (/*panzoomInstance*/ ctx[1] !== void 0) {
+    		canvas_props.panzoomInstance = /*panzoomInstance*/ ctx[1];
+    	}
+
+    	canvas = new Canvas({ props: canvas_props, $$inline: true });
+    	binding_callbacks.push(() => bind(canvas, "panzoomInstance", canvas_panzoomInstance_binding));
+    	canvas.$on("linkstart", /*handleLinkStart*/ ctx[3]);
+    	canvas.$on("linkend", /*handleLinkEnd*/ ctx[4]);
+    	canvas.$on("dragstart", /*handleDragStart*/ ctx[5]);
+    	canvas.$on("dragend", /*handleDragEnd*/ ctx[6]);
+    	canvas.$on("offsetchange", /*handleOffset*/ ctx[7]);
 
     	const block = {
     		c: function create() {
@@ -5525,20 +6189,17 @@ var app = (function () {
     			div0 = element("div");
     			t0 = space();
     			div1 = element("div");
-    			button = element("button");
-    			button.textContent = "Create new unit";
-    			t2 = space();
+    			t1 = space();
     			div2 = element("div");
     			create_component(canvas.$$.fragment);
-    			attr_dev(div0, "class", "sidebar svelte-1ijzj0g");
-    			add_location(div0, file, 117, 2, 2839);
-    			add_location(button, file, 119, 4, 2890);
-    			attr_dev(div1, "class", "header svelte-1ijzj0g");
-    			add_location(div1, file, 118, 2, 2865);
-    			attr_dev(div2, "class", "area svelte-1ijzj0g");
-    			add_location(div2, file, 121, 2, 2962);
-    			attr_dev(div3, "class", "layout svelte-1ijzj0g");
-    			add_location(div3, file, 116, 0, 2816);
+    			attr_dev(div0, "class", "sidebar svelte-2ar2im");
+    			add_location(div0, file, 125, 2, 3010);
+    			attr_dev(div1, "class", "header svelte-2ar2im");
+    			add_location(div1, file, 126, 2, 3036);
+    			attr_dev(div2, "class", "area svelte-2ar2im");
+    			add_location(div2, file, 127, 2, 3061);
+    			attr_dev(div3, "class", "layout svelte-2ar2im");
+    			add_location(div3, file, 124, 0, 2987);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -5548,21 +6209,26 @@ var app = (function () {
     			append_dev(div3, div0);
     			append_dev(div3, t0);
     			append_dev(div3, div1);
-    			append_dev(div1, button);
-    			append_dev(div3, t2);
+    			append_dev(div3, t1);
     			append_dev(div3, div2);
     			mount_component(canvas, div2, null);
-    			/*div2_binding*/ ctx[8](div2);
+    			/*div2_binding*/ ctx[12](div2);
     			current = true;
-
-    			if (!mounted) {
-    				dispose = listen_dev(button, "click", /*handleCreateUnit*/ ctx[7], false, false, false);
-    				mounted = true;
-    			}
     		},
     		p: function update(ctx, [dirty]) {
     			const canvas_changes = {};
-    			if (dirty & /*data*/ 2) canvas_changes.data = /*data*/ ctx[1];
+    			if (dirty & /*data*/ 4) canvas_changes.data = /*data*/ ctx[2];
+
+    			if (dirty & /*$$scope*/ 65536) {
+    				canvas_changes.$$scope = { dirty, ctx };
+    			}
+
+    			if (!updating_panzoomInstance && dirty & /*panzoomInstance*/ 2) {
+    				updating_panzoomInstance = true;
+    				canvas_changes.panzoomInstance = /*panzoomInstance*/ ctx[1];
+    				add_flush_callback(() => updating_panzoomInstance = false);
+    			}
+
     			canvas.$set(canvas_changes);
     		},
     		i: function intro(local) {
@@ -5577,9 +6243,7 @@ var app = (function () {
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div3);
     			destroy_component(canvas);
-    			/*div2_binding*/ ctx[8](null);
-    			mounted = false;
-    			dispose();
+    			/*div2_binding*/ ctx[12](null);
     		}
     	};
 
@@ -5601,6 +6265,7 @@ var app = (function () {
     	let bounds = { width: 0, height: 0 };
     	let centerX;
     	let centerY;
+    	let panzoomInstance;
 
     	onMount(() => {
     		const eltBounds = areaElt.getBoundingClientRect();
@@ -5673,7 +6338,7 @@ var app = (function () {
     	const handleLinkEnd = e => {
     		console.log("link end");
 
-    		$$invalidate(1, data = data.map(elt => {
+    		$$invalidate(2, data = data.map(elt => {
     			if (elt.id === e.detail.from) {
     				elt.links.push({ id: e.detail.to });
     			}
@@ -5689,7 +6354,7 @@ var app = (function () {
     	const handleDragEnd = e => {
     		console.log("drag end");
 
-    		$$invalidate(1, data = data.map(elt => {
+    		$$invalidate(2, data = data.map(elt => {
     			if (elt.id === e.detail.id) {
     				elt.x = e.detail.x;
     				elt.y = e.detail.y;
@@ -5705,7 +6370,7 @@ var app = (function () {
     	};
 
     	const handleCreateUnit = () => {
-    		$$invalidate(1, data = [
+    		$$invalidate(2, data = [
     			...data,
     			{
     				id: data.length + 1,
@@ -5717,11 +6382,24 @@ var app = (function () {
     		]);
     	};
 
+    	const zoomIn = () => {
+    		panzoomInstance.smoothZoom(0, 0, 1.1);
+    	};
+
+    	const zoomOut = () => {
+    		panzoomInstance.smoothZoom(0, 0, 0.9);
+    	};
+
     	const writable_props = [];
 
     	Object.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== "$$") console_1.warn(`<App> was created with unknown prop '${key}'`);
     	});
+
+    	function canvas_panzoomInstance_binding(value) {
+    		panzoomInstance = value;
+    		$$invalidate(1, panzoomInstance);
+    	}
 
     	function div2_binding($$value) {
     		binding_callbacks[$$value ? "unshift" : "push"](() => {
@@ -5741,13 +6419,16 @@ var app = (function () {
     		bounds,
     		centerX,
     		centerY,
+    		panzoomInstance,
     		data,
     		handleLinkStart,
     		handleLinkEnd,
     		handleDragStart,
     		handleDragEnd,
     		handleOffset,
-    		handleCreateUnit
+    		handleCreateUnit,
+    		zoomIn,
+    		zoomOut
     	});
 
     	$$self.$inject_state = $$props => {
@@ -5755,7 +6436,8 @@ var app = (function () {
     		if ("bounds" in $$props) bounds = $$props.bounds;
     		if ("centerX" in $$props) centerX = $$props.centerX;
     		if ("centerY" in $$props) centerY = $$props.centerY;
-    		if ("data" in $$props) $$invalidate(1, data = $$props.data);
+    		if ("panzoomInstance" in $$props) $$invalidate(1, panzoomInstance = $$props.panzoomInstance);
+    		if ("data" in $$props) $$invalidate(2, data = $$props.data);
     	};
 
     	if ($$props && "$$inject" in $$props) {
@@ -5764,6 +6446,7 @@ var app = (function () {
 
     	return [
     		areaElt,
+    		panzoomInstance,
     		data,
     		handleLinkStart,
     		handleLinkEnd,
@@ -5771,6 +6454,9 @@ var app = (function () {
     		handleDragEnd,
     		handleOffset,
     		handleCreateUnit,
+    		zoomIn,
+    		zoomOut,
+    		canvas_panzoomInstance_binding,
     		div2_binding
     	];
     }

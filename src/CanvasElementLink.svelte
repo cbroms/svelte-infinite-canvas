@@ -1,8 +1,8 @@
 <script>
   import { linkedElements } from "./stores/linkedElements";
   import { dragging } from "./stores/dragging";
-  import { linking } from "./stores/linking";
-  import { position } from "./stores/position";
+  import { animating } from "./stores/animating";
+
   import { zoom } from "./stores/zoom";
 
   export let from = null;
@@ -40,7 +40,9 @@
       $linkedElements[from] &&
       ($dragging.id === undefined ||
         $dragging.id === from ||
-        $dragging.id === to)
+        $dragging.id === to ||
+        $animating.includes(to) ||
+        $animating.includes(from))
     ) {
       // TODO: this doesn't work when the elements  render off screen, since everything is relative to the viewport
       const fromPos = $linkedElements[from].element.getBoundingClientRect();
@@ -80,6 +82,15 @@
         x = adjustedFromX;
         lineX2 = width;
         lineX1 = 0;
+      }
+
+      // remove any of the animating ids from the store now that we've updated the connection
+      if ($animating.includes(to) || $animating.includes(from)) {
+        let newAnimating = [...$animating];
+        newAnimating = newAnimating.filter((id) => {
+          return id !== to && id !== from;
+        });
+        animating.set(newAnimating);
       }
     }
   }

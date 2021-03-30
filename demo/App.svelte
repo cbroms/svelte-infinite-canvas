@@ -13,6 +13,7 @@
   let bounds = { width: 0, height: 0 };
   let centerX;
   let centerY;
+  let panzoomInstance;
 
   onMount(() => {
     const eltBounds = areaElt.getBoundingClientRect();
@@ -112,13 +113,18 @@
       },
     ];
   };
+  const zoomIn = () => {
+    panzoomInstance.smoothZoom(0, 0, 1.1);
+  };
+
+  const zoomOut = () => {
+    panzoomInstance.smoothZoom(0, 0, 0.9);
+  };
 </script>
 
 <div class="layout">
   <div class="sidebar" />
-  <div class="header">
-    <button on:click={handleCreateUnit}>Create new unit</button>
-  </div>
+  <div class="header" />
   <div class="area" bind:this={areaElt}>
     <Canvas
       {data}
@@ -131,9 +137,18 @@
       on:dragstart={handleDragStart}
       on:dragend={handleDragEnd}
       on:offsetchange={handleOffset}
+      bind:panzoomInstance
       x={2000}
       y={2000}
-    />
+    >
+      <div slot="controls" class="controls">
+        <button on:click={handleCreateUnit}>Create new unit</button>
+        <div>
+          <button on:click={zoomIn}>+ Zoom in</button>
+          <button on:click={zoomOut}>- Zoom out</button>
+        </div>
+      </div>
+    </Canvas>
   </div>
 </div>
 
@@ -158,10 +173,27 @@
     background-color: white;
   }
 
+  .controls {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+  }
+
   .area {
     border: 1px solid black;
     overflow: hidden;
     grid-column: 2 / 3;
     grid-row: 2 / 3;
+  }
+
+  button {
+    margin: 20px 10px;
+    padding: 5px 10px;
+    cursor: pointer;
+    border: 1px solid black;
+    font-size: 14px;
   }
 </style>
