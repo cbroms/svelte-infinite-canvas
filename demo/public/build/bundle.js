@@ -333,6 +333,9 @@ var app = (function () {
     function onMount(fn) {
         get_current_component().$$.on_mount.push(fn);
     }
+    function afterUpdate(fn) {
+        get_current_component().$$.after_update.push(fn);
+    }
     function onDestroy(fn) {
         get_current_component().$$.on_destroy.push(fn);
     }
@@ -3420,9 +3423,9 @@ var app = (function () {
     			set_style(div0, "height", /*y*/ ctx[1] + "px");
     			set_style(div0, "width", /*x*/ ctx[0] + "px");
     			attr_dev(div0, "class", "svelte-z67t9k");
-    			add_location(div0, file$7, 53, 2, 1288);
+    			add_location(div0, file$7, 56, 2, 1360);
     			attr_dev(div1, "class", "canvas-container svelte-z67t9k");
-    			add_location(div1, file$7, 52, 0, 1255);
+    			add_location(div1, file$7, 55, 0, 1327);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -3505,7 +3508,14 @@ var app = (function () {
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots("CanvasInteractable", slots, ['content','controls']);
 
-    	let { panzoomOptions = { maxZoom: 5, minZoom: 0.2, initialZoom: 1 } } = $$props; // beforeMouseDown: (e) => {
+    	let { panzoomOptions = {
+    		maxZoom: 5,
+    		minZoom: 0.2,
+    		initialZoom: 1,
+    		zoomDoubleClickSpeed: 1,
+    		bounds: true,
+    		boundsPadding: 0.01
+    	} } = $$props; // beforeMouseDown: (e) => {
     	//   return !e.altKey;
     	// },
 
@@ -4629,7 +4639,7 @@ var app = (function () {
     const get_controls_slot_changes = dirty => ({});
     const get_controls_slot_context = ctx => ({});
 
-    // (65:6) {#each element.links as link}
+    // (71:6) {#each element.links as link}
     function create_each_block_1(ctx) {
     	let canvaselementlink;
     	let current;
@@ -4680,14 +4690,14 @@ var app = (function () {
     		block,
     		id: create_each_block_1.name,
     		type: "each",
-    		source: "(65:6) {#each element.links as link}",
+    		source: "(71:6) {#each element.links as link}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (63:4) {#each data as element}
+    // (69:4) {#each data as element}
     function create_each_block(ctx) {
     	let canvaselement;
     	let t;
@@ -4824,14 +4834,14 @@ var app = (function () {
     		block,
     		id: create_each_block.name,
     		type: "each",
-    		source: "(63:4) {#each data as element}",
+    		source: "(69:4) {#each data as element}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (75:4) {#if $linking.start}
+    // (81:4) {#if $linking.start}
     function create_if_block$1(ctx) {
     	let mousepositionelement;
     	let t;
@@ -4888,14 +4898,14 @@ var app = (function () {
     		block,
     		id: create_if_block$1.name,
     		type: "if",
-    		source: "(75:4) {#if $linking.start}",
+    		source: "(81:4) {#if $linking.start}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (62:2) 
+    // (68:2) 
     function create_content_slot(ctx) {
     	let div;
     	let t;
@@ -4925,7 +4935,7 @@ var app = (function () {
     			t = space();
     			if (if_block) if_block.c();
     			attr_dev(div, "slot", "content");
-    			add_location(div, file$4, 61, 2, 1701);
+    			add_location(div, file$4, 67, 2, 1757);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -5021,14 +5031,14 @@ var app = (function () {
     		block,
     		id: create_content_slot.name,
     		type: "slot",
-    		source: "(62:2) ",
+    		source: "(68:2) ",
     		ctx
     	});
 
     	return block;
     }
 
-    // (84:2) 
+    // (90:2) 
     function create_controls_slot$1(ctx) {
     	let div;
     	let current;
@@ -5040,7 +5050,7 @@ var app = (function () {
     			div = element("div");
     			if (controls_slot) controls_slot.c();
     			attr_dev(div, "slot", "controls");
-    			add_location(div, file$4, 83, 2, 2260);
+    			add_location(div, file$4, 89, 2, 2316);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -5077,7 +5087,7 @@ var app = (function () {
     		block,
     		id: create_controls_slot$1.name,
     		type: "slot",
-    		source: "(84:2) ",
+    		source: "(90:2) ",
     		ctx
     	});
 
@@ -5292,13 +5302,21 @@ var app = (function () {
     			}
     		}
 
-    		if ($$self.$$.dirty & /*$position, $zoom*/ 3072) {
+    		if ($$self.$$.dirty & /*$position*/ 1024) {
     			{
     				if ($position) {
     					const parts = $position.split(",");
-    					const thisX = -1 * parseInt(parts[4]) * (1 / $zoom);
-    					const thisY = -1 * parseInt(parts[5]) * (1 / $zoom);
+    					const thisX = -1 * parseInt(parts[4]);
+    					const thisY = -1 * parseInt(parts[5]);
     					dispatch("offsetchange", { x: thisX, y: thisY });
+    				}
+    			}
+    		}
+
+    		if ($$self.$$.dirty & /*$zoom*/ 2048) {
+    			{
+    				if ($zoom) {
+    					dispatch("scalechange", { scale: $zoom });
     				}
     			}
     		}
@@ -6071,7 +6089,7 @@ var app = (function () {
     const { console: console_1 } = globals;
     const file = "demo/App.svelte";
 
-    // (144:6) 
+    // (207:6) 
     function create_controls_slot(ctx) {
     	let div1;
     	let button0;
@@ -6096,15 +6114,15 @@ var app = (function () {
     			button2 = element("button");
     			button2.textContent = "- Zoom out";
     			attr_dev(button0, "class", "svelte-2ar2im");
-    			add_location(button0, file, 144, 8, 3549);
+    			add_location(button0, file, 207, 8, 5299);
     			attr_dev(button1, "class", "svelte-2ar2im");
-    			add_location(button1, file, 146, 10, 3634);
+    			add_location(button1, file, 209, 10, 5384);
     			attr_dev(button2, "class", "svelte-2ar2im");
-    			add_location(button2, file, 147, 10, 3689);
-    			add_location(div0, file, 145, 8, 3618);
+    			add_location(button2, file, 210, 10, 5439);
+    			add_location(div0, file, 208, 8, 5368);
     			attr_dev(div1, "slot", "controls");
     			attr_dev(div1, "class", "controls svelte-2ar2im");
-    			add_location(div1, file, 143, 6, 3502);
+    			add_location(div1, file, 206, 6, 5252);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div1, anchor);
@@ -6117,9 +6135,9 @@ var app = (function () {
 
     			if (!mounted) {
     				dispose = [
-    					listen_dev(button0, "click", /*handleCreateUnit*/ ctx[8], false, false, false),
-    					listen_dev(button1, "click", /*zoomIn*/ ctx[9], false, false, false),
-    					listen_dev(button2, "click", /*zoomOut*/ ctx[10], false, false, false)
+    					listen_dev(button0, "click", /*handleCreateUnit*/ ctx[9], false, false, false),
+    					listen_dev(button1, "click", /*zoomIn*/ ctx[10], false, false, false),
+    					listen_dev(button2, "click", /*zoomOut*/ ctx[11], false, false, false)
     				];
 
     				mounted = true;
@@ -6137,7 +6155,7 @@ var app = (function () {
     		block,
     		id: create_controls_slot.name,
     		type: "slot",
-    		source: "(144:6) ",
+    		source: "(207:6) ",
     		ctx
     	});
 
@@ -6156,7 +6174,7 @@ var app = (function () {
     	let current;
 
     	function canvas_panzoomInstance_binding(value) {
-    		/*canvas_panzoomInstance_binding*/ ctx[11](value);
+    		/*canvas_panzoomInstance_binding*/ ctx[12](value);
     	}
 
     	let canvas_props = {
@@ -6182,6 +6200,7 @@ var app = (function () {
     	canvas.$on("dragstart", /*handleDragStart*/ ctx[5]);
     	canvas.$on("dragend", /*handleDragEnd*/ ctx[6]);
     	canvas.$on("offsetchange", /*handleOffset*/ ctx[7]);
+    	canvas.$on("scalechange", /*handleScale*/ ctx[8]);
 
     	const block = {
     		c: function create() {
@@ -6193,13 +6212,13 @@ var app = (function () {
     			div2 = element("div");
     			create_component(canvas.$$.fragment);
     			attr_dev(div0, "class", "sidebar svelte-2ar2im");
-    			add_location(div0, file, 125, 2, 3010);
+    			add_location(div0, file, 187, 2, 4725);
     			attr_dev(div1, "class", "header svelte-2ar2im");
-    			add_location(div1, file, 126, 2, 3036);
+    			add_location(div1, file, 188, 2, 4751);
     			attr_dev(div2, "class", "area svelte-2ar2im");
-    			add_location(div2, file, 127, 2, 3061);
+    			add_location(div2, file, 189, 2, 4776);
     			attr_dev(div3, "class", "layout svelte-2ar2im");
-    			add_location(div3, file, 124, 0, 2987);
+    			add_location(div3, file, 186, 0, 4702);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -6212,14 +6231,14 @@ var app = (function () {
     			append_dev(div3, t1);
     			append_dev(div3, div2);
     			mount_component(canvas, div2, null);
-    			/*div2_binding*/ ctx[12](div2);
+    			/*div2_binding*/ ctx[13](div2);
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
     			const canvas_changes = {};
     			if (dirty & /*data*/ 4) canvas_changes.data = /*data*/ ctx[2];
 
-    			if (dirty & /*$$scope*/ 65536) {
+    			if (dirty & /*$$scope*/ 1048576) {
     				canvas_changes.$$scope = { dirty, ctx };
     			}
 
@@ -6243,7 +6262,7 @@ var app = (function () {
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div3);
     			destroy_component(canvas);
-    			/*div2_binding*/ ctx[12](null);
+    			/*div2_binding*/ ctx[13](null);
     		}
     	};
 
@@ -6263,18 +6282,27 @@ var app = (function () {
     	validate_slots("App", slots, []);
     	let areaElt = null;
     	let bounds = { width: 0, height: 0 };
-    	let centerX;
-    	let centerY;
+    	let offsetX = 0;
+    	let offsetY = 0;
+    	let scale = 1;
     	let panzoomInstance;
 
-    	onMount(() => {
+    	const calculateBounds = () => {
     		const eltBounds = areaElt.getBoundingClientRect();
 
     		bounds = {
     			width: eltBounds.width,
     			height: eltBounds.height
     		};
+    	};
+
+    	onMount(() => {
+    		calculateBounds();
     	});
+
+    	afterUpdate(() => {
+    		
+    	}); // calculateBounds();
 
     	let data = [
     		{
@@ -6365,8 +6393,22 @@ var app = (function () {
     	};
 
     	const handleOffset = e => {
-    		centerX = e.detail.x + bounds.width / 2;
-    		centerY = e.detail.y + bounds.height / 2;
+    		// what space is detail x y in
+    		// bounds in pixel space
+    		offsetX = e.detail.x;
+
+    		offsetY = e.detail.y;
+    		console.log("offset", e.detail.x, e.detail.y, offsetX, offsetY);
+    	};
+
+    	const handleScale = e => {
+    		// offsetX, y in pixel space
+    		// console.log(e.detail.scale, bounds.width, bounds.height);
+    		// offsetX *= e.detail.scale;
+    		// offsetY *= e.detail.scale;
+    		scale = e.detail.scale;
+
+    		console.log("scale", scale);
     	};
 
     	const handleCreateUnit = () => {
@@ -6374,20 +6416,54 @@ var app = (function () {
     			...data,
     			{
     				id: data.length + 1,
-    				x: centerX,
-    				y: centerY,
+    				x: offsetX,
+    				y: offsetY,
     				text: "a new unit",
     				links: []
     			}
     		]);
     	};
 
-    	const zoomIn = () => {
-    		panzoomInstance.smoothZoom(0, 0, 1.1);
+    	const zoomIn = e => {
+    		// unit space
+    		const centerX = (offsetX + bounds.width / 2) / scale;
+
+    		const centerY = (offsetY + bounds.height / 2) / scale;
+    		const dX = bounds.width / 2 / scale;
+    		const dY = bounds.height / 2 / scale;
+    		const top = centerY - dY * 0.8;
+    		const bottom = centerY + dY * 0.8;
+    		const left = centerX - dX * 0.8;
+    		const right = centerX + dX * 0.8;
+
+    		// HACK: to cancel animation
+    		panzoomInstance.zoomTo(centerX, centerY, 1.25); // upper-left corner
+
+    		// relative to original
+    		panzoomInstance.showRectangle({ top, bottom, left, right });
+    	};
+
+    	const boundWindow = e => {
+    		
     	};
 
     	const zoomOut = () => {
-    		panzoomInstance.smoothZoom(0, 0, 0.9);
+    		// unit space
+    		const centerX = (offsetX + bounds.width / 2) / scale;
+
+    		const centerY = (offsetY + bounds.height / 2) / scale;
+    		const dX = bounds.width / 2 / scale;
+    		const dY = bounds.height / 2 / scale;
+    		const top = centerY - dY * 1.25;
+    		const bottom = centerY + dY * 1.25;
+    		const left = centerX - dX * 1.25;
+    		const right = centerX + dX * 1.25;
+
+    		// HACK: to cancel animation
+    		panzoomInstance.zoomTo(centerX, centerY, 0.8); // upper-left corner
+
+    		// relative to original
+    		panzoomInstance.showRectangle({ top, bottom, left, right });
     	};
 
     	const writable_props = [];
@@ -6410,6 +6486,7 @@ var app = (function () {
 
     	$$self.$capture_state = () => ({
     		onMount,
+    		afterUpdate,
     		Canvas,
     		Unit,
     		Inner,
@@ -6417,25 +6494,30 @@ var app = (function () {
     		LineAnnotation,
     		areaElt,
     		bounds,
-    		centerX,
-    		centerY,
+    		offsetX,
+    		offsetY,
+    		scale,
     		panzoomInstance,
+    		calculateBounds,
     		data,
     		handleLinkStart,
     		handleLinkEnd,
     		handleDragStart,
     		handleDragEnd,
     		handleOffset,
+    		handleScale,
     		handleCreateUnit,
     		zoomIn,
+    		boundWindow,
     		zoomOut
     	});
 
     	$$self.$inject_state = $$props => {
     		if ("areaElt" in $$props) $$invalidate(0, areaElt = $$props.areaElt);
     		if ("bounds" in $$props) bounds = $$props.bounds;
-    		if ("centerX" in $$props) centerX = $$props.centerX;
-    		if ("centerY" in $$props) centerY = $$props.centerY;
+    		if ("offsetX" in $$props) offsetX = $$props.offsetX;
+    		if ("offsetY" in $$props) offsetY = $$props.offsetY;
+    		if ("scale" in $$props) scale = $$props.scale;
     		if ("panzoomInstance" in $$props) $$invalidate(1, panzoomInstance = $$props.panzoomInstance);
     		if ("data" in $$props) $$invalidate(2, data = $$props.data);
     	};
@@ -6453,6 +6535,7 @@ var app = (function () {
     		handleDragStart,
     		handleDragEnd,
     		handleOffset,
+    		handleScale,
     		handleCreateUnit,
     		zoomIn,
     		zoomOut,

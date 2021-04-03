@@ -10,6 +10,9 @@
     maxZoom: 5,
     minZoom: 0.2,
     initialZoom: 1,
+    zoomDoubleClickSpeed: 1,
+    bounds: true,
+    boundsPadding: 0.01,
     // beforeMouseDown: (e) => {
     //   return !e.altKey;
     // },

@@ -51,9 +51,15 @@
   $: {
     if ($position) {
       const parts = $position.split(",");
-      const thisX = -1 * parseInt(parts[4]) * (1 / $zoom);
-      const thisY = -1 * parseInt(parts[5]) * (1 / $zoom);
+      const thisX = -1 * parseInt(parts[4]);
+      const thisY = -1 * parseInt(parts[5]);
       dispatch("offsetchange", { x: thisX, y: thisY });
+    }
+  }
+
+  $: {
+    if ($zoom) {
+      dispatch("scalechange", { scale: $zoom });
     }
   }
 </script>

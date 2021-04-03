@@ -2,7 +2,7 @@
   //   import InfiniteCanvas from "../src/CanvasInteractable.svelte";
   //   import CanvasElement from "../src/CanvasElement.svelte";
   //   import CanvasElementLink from "../src/CanvasElementLink.svelte";
-  import { onMount } from "svelte";
+  import { onMount, afterUpdate } from "svelte";
   import Canvas from "../src/Canvas.svelte";
   import Unit from "./Unit.svelte";
   import Inner from "./Inner.svelte";
@@ -11,13 +11,22 @@
 
   let areaElt = null;
   let bounds = { width: 0, height: 0 };
-  let centerX;
-  let centerY;
+  let offsetX = 0;
+  let offsetY = 0;
+  let scale = 1;
   let panzoomInstance;
 
-  onMount(() => {
+  const calculateBounds = () => {
     const eltBounds = areaElt.getBoundingClientRect();
     bounds = { width: eltBounds.width, height: eltBounds.height };
+  };
+
+  onMount(() => {
+    calculateBounds();
+  });
+
+  afterUpdate(() => {
+    // calculateBounds();
   });
 
   let data = [
@@ -97,8 +106,20 @@
   };
 
   const handleOffset = (e) => {
-    centerX = e.detail.x + bounds.width / 2;
-    centerY = e.detail.y + bounds.height / 2;
+    // what space is detail x y in
+    // bounds in pixel space
+    offsetX = e.detail.x;
+    offsetY = e.detail.y;
+    console.log("offset", e.detail.x, e.detail.y, offsetX, offsetY);
+  };
+
+  const handleScale = (e) => {
+    // offsetX, y in pixel space
+    // console.log(e.detail.scale, bounds.width, bounds.height);
+    // offsetX *= e.detail.scale;
+    // offsetY *= e.detail.scale;
+    scale = e.detail.scale;
+    console.log("scale", scale);
   };
 
   const handleCreateUnit = () => {
@@ -106,19 +127,60 @@
       ...data,
       {
         id: data.length + 1,
-        x: centerX,
-        y: centerY,
+        x: offsetX,
+        y: offsetY,
         text: "a new unit",
         links: [],
       },
     ];
   };
-  const zoomIn = () => {
-    panzoomInstance.smoothZoom(0, 0, 1.1);
+
+  const zoomIn = (e) => {
+    // unit space
+    const centerX = (offsetX + bounds.width / 2) / scale;
+    const centerY = (offsetY + bounds.height / 2) / scale;
+    const dX = bounds.width / 2 / scale;
+    const dY = bounds.height / 2 / scale;
+    const top = centerY - dY * 0.8;
+    const bottom = centerY + dY * 0.8;
+    const left = centerX - dX * 0.8;
+    const right = centerX + dX * 0.8;
+
+    // HACK: to cancel animation
+    panzoomInstance.zoomTo(centerX, centerY, 1.25); // upper-left corner
+    // relative to original
+
+    panzoomInstance.showRectangle({
+      top: top,
+      bottom: bottom,
+      left: left,
+      right: right,
+    });
   };
 
+  const boundWindow = (e) => {};
+
   const zoomOut = () => {
-    panzoomInstance.smoothZoom(0, 0, 0.9);
+    // unit space
+    const centerX = (offsetX + bounds.width / 2) / scale;
+    const centerY = (offsetY + bounds.height / 2) / scale;
+    const dX = bounds.width / 2 / scale;
+    const dY = bounds.height / 2 / scale;
+    const top = centerY - dY * 1.25;
+    const bottom = centerY + dY * 1.25;
+    const left = centerX - dX * 1.25;
+    const right = centerX + dX * 1.25;
+
+    // HACK: to cancel animation
+    panzoomInstance.zoomTo(centerX, centerY, 0.8); // upper-left corner
+    // relative to original
+
+    panzoomInstance.showRectangle({
+      top: top,
+      bottom: bottom,
+      left: left,
+      right: right,
+    });
   };
 </script>
 
@@ -137,6 +199,7 @@
       on:dragstart={handleDragStart}
       on:dragend={handleDragEnd}
       on:offsetchange={handleOffset}
+      on:scalechange={handleScale}
       bind:panzoomInstance
       x={2000}
       y={2000}
